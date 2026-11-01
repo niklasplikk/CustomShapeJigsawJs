@@ -802,6 +802,210 @@
             save("jigsaw.svg", svgstrsave);
         }
 
+        // ===================== WHIMSY PIECES =====================
+        // A whimsy is a closed outline placed inside the puzzle. It is added to the
+        // border paths as a "hole": the Voronoi pieces grow around it, their edges snap
+        // to its outline, and the outline itself is cut as-is, so the inside becomes
+        // one shaped piece.
+        var whimsies = [];      // {name, d, w0, h0, x, y, width, rot, solidity}
+        var selectedWhimsy = 0;
+        var lastGenOK = false;
+
+        const BUILTIN_WHIMSIES = {
+            butterfly: "M 50 14 C 53 14 54 17 53 21 C 60 10 80 0 92 6 C 102 12 98 32 86 40 C 78 45 64 44 56 44 C 70 48 84 58 80 70 C 76 80 62 80 56 66 C 55 72 53 80 50 82 C 47 80 45 72 44 66 C 38 80 24 80 20 70 C 16 58 30 48 44 44 C 36 44 22 45 14 40 C 2 32 -2 12 8 6 C 20 0 40 10 47 21 C 46 17 47 14 50 14 Z",
+            star: (function () {
+                var s = "", n = 5;
+                for (var i = 0; i < 2 * n; i++) {
+                    var r = (i % 2) ? 21 : 50, a = -Math.PI / 2 + i * Math.PI / n;
+                    s += (i ? " L " : "M ") + (50 + r * Math.cos(a)).toFixed(2) + " " + (50 + r * Math.sin(a)).toFixed(2);
+                }
+                return s + " Z";
+            })(),
+            heart: "M 50 30 C 50 10 90 4 96 30 C 100 52 70 70 50 92 C 30 70 0 52 4 30 C 10 4 50 10 50 30 Z",
+            fish: "M 4 50 C 20 20 60 16 78 42 L 96 26 C 92 40 92 60 96 74 L 78 58 C 60 84 20 80 4 50 Z"
+        };
+
+        function tmpSvg() {
+            var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            s.setAttribute("style", "position:absolute;left:-9999px;top:-9999px");
+            document.body.appendChild(s);
+            return s;
+        }
+
+        // Turn any SVG text into one normalised outline (largest closed sub-path).
+        function whimsyFromSvgText(text) {
+            var doc = new DOMParser().parseFromString(text, "image/svg+xml");
+            var src = doc.getElementsByTagName("svg")[0];
+            if (!src) throw "Not an SVG file";
+            src = document.importNode(src, true);
+            src.setAttribute("style", "position:absolute;left:-9999px;top:-9999px");
+            document.body.appendChild(src);
+            flatten(src, false, true);
+            var holder = tmpSvg();
+            var best = null, bestArea = -1;
+            for (let p of src.getElementsByTagName("path")) {
+                var d = p.getAttribute("d") || "";
+                d.split(/(?=M)/).forEach((sub) => {
+                    sub = sub.trim();
+                    if (!sub) return;
+                    var tp = document.createElementNS(holder.namespaceURI, "path");
+                    tp.setAttribute("d", sub);
+                    holder.appendChild(tp);
+                    var bb = tp.getBBox();
+                    if (bb.width * bb.height > bestArea) { bestArea = bb.width * bb.height; best = sub; }
+                });
+            }
+            document.body.removeChild(src);
+            document.body.removeChild(holder);
+            if (!best) throw "No closed shape found in the SVG";
+            return normaliseWhimsy(best);
+        }
+
+        function normaliseWhimsy(d) {
+            if (!/[Zz]\s*$/.test(d)) d += " Z";
+            var holder = tmpSvg();
+            var g = document.createElementNS(holder.namespaceURI, "g");
+            var p = document.createElementNS(holder.namespaceURI, "path");
+            p.setAttribute("d", d);
+            g.appendChild(p);
+            holder.appendChild(g);
+            var bb = p.getBBox();
+            g.setAttribute("transform", "translate(" + (-bb.x) + "," + (-bb.y) + ")");
+            flatten(holder, false, true);
+            p = holder.getElementsByTagName("path")[0];
+            var res = { d: p.getAttribute("d"), w0: bb.width, h0: bb.height, solidity: solidity(p) };
+            document.body.removeChild(holder);
+            return res;
+        }
+
+        // area / convex-hull area. Close to 1 = convex = will fall out of the puzzle.
+        function solidity(path) {
+            var len = path.getTotalLength(), pts = [];
+            for (var i = 0; i < 400; i++) { var q = path.getPointAtLength(len * i / 400); pts.push([q.x, q.y]); }
+            var area = 0;
+            for (var i = 0; i < pts.length; i++) { var a = pts[i], b = pts[(i + 1) % pts.length]; area += a[0] * b[1] - b[0] * a[1]; }
+            area = Math.abs(area / 2);
+            var s = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+            var cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+            var lo = [], hi = [];
+            for (var q of s) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+            for (var q of s.reverse()) { while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
+            var hull = lo.slice(0, -1).concat(hi.slice(0, -1)), ha = 0;
+            for (var i = 0; i < hull.length; i++) { var a = hull[i], b = hull[(i + 1) % hull.length]; ha += a[0] * b[1] - b[0] * a[1]; }
+            return area / Math.abs(ha / 2);
+        }
+
+        function lockLabel(s) {
+            if (s < 0.78) return '<span style="color:#1a7f37">locks well</span>';
+            if (s < 0.9) return '<span style="color:#b07d00">locks weakly</span>';
+            return '<span style="color:#c62828">will fall out</span>';
+        }
+
+        function addWhimsy(name, shape) {
+            whimsies.push({ name: name, d: shape.d, w0: shape.w0, h0: shape.h0, solidity: shape.solidity,
+                x: null, y: null, width: 40, rot: 0 });
+            selectedWhimsy = whimsies.length - 1;
+            renderWhimsyList();
+        }
+
+        function addBuiltinWhimsy() {
+            var key = $("whimsyshape").value;
+            if (key == "file") { $("whimsyfile").click(); return; }
+            addWhimsy($("whimsyshape").selectedOptions[0].text, normaliseWhimsy(BUILTIN_WHIMSIES[key]));
+        }
+
+        function loadWhimsyFile() {
+            var f = $("whimsyfile").files[0];
+            if (!f) return;
+            var fr = new FileReader();
+            fr.onload = function () {
+                try { addWhimsy(f.name.replace(/\.svg$/i, ""), whimsyFromSvgText(fr.result)); }
+                catch (e) { alert("Could not use this SVG: " + e); }
+                $("whimsyfile").value = "";
+            };
+            fr.readAsText(f);
+        }
+
+        function renderWhimsyList() {
+            var html = "";
+            whimsies.forEach((w, i) => {
+                var num = (k, v, step) => '<input type="number" step="' + step + '" style="width:4.5em" value="' + (v === null ? "" : +(+v).toFixed(1)) +
+                    '" placeholder="auto" onchange="whimsies[' + i + '].' + k + '=(this.value===\'\'?null:parseFloat(this.value))">';
+                html += '<tr><td><label><input type="radio" name="wsel" ' + (i == selectedWhimsy ? "checked" : "") +
+                    ' onchange="selectedWhimsy=' + i + '"> ' + w.name + '</label></td>' +
+                    '<td>X ' + num("x", w.x, 1) + ' Y ' + num("y", w.y, 1) + ' mm</td>' +
+                    '<td>Width ' + num("width", w.width, 1) + ' mm</td>' +
+                    '<td>Rot ' + num("rot", w.rot, 5) + '°</td>' +
+                    '<td>' + lockLabel(w.solidity) + '</td>' +
+                    '<td><button onclick="whimsies.splice(' + i + ',1);selectedWhimsy=0;renderWhimsyList()">Remove</button></td></tr>';
+            });
+            $("whimsylist").innerHTML = html;
+            $("whimsyhint").style.display = whimsies.length ? "" : "none";
+        }
+
+        // Called from generate(), after the border has been normalised into pgroup.
+        function placeWhimsies(pgroup) {
+            var warnings = [];
+            var idx = 0;
+            var ns = pgroup.namespaceURI;
+            var boxes = [];
+            whimsies.forEach((w) => {
+                if (w.x === null) w.x = customborder.width / 2;
+                if (w.y === null) w.y = customborder.height / 2;
+                var s = w.width / w.w0;
+                var g = document.createElementNS(ns, "g");
+                g.setAttribute("transform", "translate(" + w.x + "," + w.y + ") rotate(" + w.rot + ") scale(" + s + ") translate(" + (-w.w0 / 2) + "," + (-w.h0 / 2) + ")");
+                var p = document.createElementNS(ns, "path");
+                p.setAttribute("d", w.d);
+                p.setAttribute("stroke", "black");
+                p.setAttribute("stroke-width", 1);
+                p.setAttribute("fill", "none");
+                p.setAttribute("id", "whimsy-" + (idx++));
+                g.appendChild(p);
+                pgroup.appendChild(g);
+            });
+            flatten($("svgcontainer"), false, true);
+            var cs = parseFloat($("cell_scale").value);
+            var wpaths = [...pgroup.getElementsByTagName("path")].filter(p => /^whimsy-/.test(p.id || ""));
+            wpaths.forEach((p, i) => {
+                var bb = p.getBBox(), w = whimsies[i];
+                boxes.push(bb);
+                if (bb.x < 2 * cs || bb.y < 2 * cs || bb.x + bb.width > customborder.width - 2 * cs || bb.y + bb.height > customborder.height - 2 * cs)
+                    warnings.push(w.name + " is too close to (or outside) the edge of the puzzle.");
+                if (Math.min(bb.width, bb.height) < 4 * cs)
+                    warnings.push(w.name + " is very small compared to the cell size (" + cs + " mm). Make it bigger or reduce the cell size.");
+                if (w.solidity >= 0.9)
+                    warnings.push(w.name + " is almost convex and will fall out of the finished puzzle.");
+            });
+            for (var i = 0; i < boxes.length; i++) for (var j = i + 1; j < boxes.length; j++) {
+                var a = boxes[i], b = boxes[j], m = 2 * cs;
+                if (a.x < b.x + b.width + m && b.x < a.x + a.width + m && a.y < b.y + b.height + m && b.y < a.y + a.height + m)
+                    warnings.push(whimsies[i].name + " and " + whimsies[j].name + " are very close or overlapping.");
+            }
+            renderWhimsyList();
+            return warnings;
+        }
+
+        function rectBorderSvg(w, h) {
+            var d = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h +
+                '"><path d="M 0 0 L ' + w + ' 0 L ' + w + ' ' + h + ' L 0 ' + h + ' Z"/></svg>', "image/svg+xml");
+            return d.getElementsByTagName("svg")[0];
+        }
+
+        function previewClick(evt) {
+            if (!whimsies.length || !lastGenOK || !whimsies[selectedWhimsy]) return;
+            var svg = $("svgcontainer");
+            var pt = svg.createSVGPoint();
+            pt.x = evt.clientX; pt.y = evt.clientY;
+            var p = pt.matrixTransform(svg.getScreenCTM().inverse());
+            var cs = parseFloat($("cell_scale").value);
+            whimsies[selectedWhimsy].x = p.x - cs / 2;
+            whimsies[selectedWhimsy].y = p.y - cs / 2;
+            renderWhimsyList();
+            generate();
+        }
+        // ===================== END WHIMSY PIECES =====================
+
         function generate() {
             update_seed();
             tab_rel_size = parseFloat($("tabrelsize").value) / 200.0;
@@ -817,6 +1021,14 @@
             var gsize = parseInt($("gsize").value);
             var gnoise = parseFloat($("gnoise").value);
             var cell_scale = parseFloat($("cell_scale").value)
+
+            // Whimsies need a border path to be holes in, so rectangular puzzles get a synthetic rectangle border.
+            var synthRect = false;
+            var whimsyWarnings = [];
+            if (!customborder.svgdata && whimsies.length) {
+                customborder.svgdata = rectBorderSvg(cols * cell_scale, rows * cell_scale);
+                synthRect = true;
+            }
 
             if (customborder.svgdata) {
                 while ($("svgcontainer").firstChild) {
@@ -858,6 +1070,10 @@
 
                 customborder.width = ($("svgcontainer").getBBox().width + $("svgcontainer").getBBox().x);// * pixelsize;
                 customborder.height = ($("svgcontainer").getBBox().height + $("svgcontainer").getBBox().y);// * pixelsize;
+
+                if (whimsies.length) {
+                    whimsyWarnings = placeWhimsies(pgroup);
+                }
 
                 customborder.paths = pgroup.getElementsByTagName("path");
 
@@ -922,7 +1138,16 @@
                     else stale = 0;
                 } while (automata.empty_cells && stale < 10);
                 paintoutput();
+                if (whimsies.length) {
+                    $("piececount").innerHTML = (parseInt($("piececount").innerHTML) + whimsies.length) + " (including " + whimsies.length + " shaped)";
+                }
             }
+            if (synthRect) {
+                // keep the rectangle-mode state as the user left it
+                customborder = {};
+            }
+            lastGenOK = true;
+            $("whimsywarn").innerHTML = whimsyWarnings.map(w => "⚠ " + w).join("<br>");
             updatedimensions(1);
 
         }
@@ -1208,6 +1433,30 @@
                 <td><button onclick="unloadborder()">Unload custom border</button></td>
             </tr> -->
             <tr>
+                <td>Shaped (whimsy) pieces:</td>
+                <td colspan="2">
+                    <select id="whimsyshape">
+                        <option value="butterfly">Butterfly</option>
+                        <option value="fish">Fish</option>
+                        <option value="star">Star</option>
+                        <option value="heart">Heart</option>
+                        <option value="file">Your own SVG…</option>
+                    </select>
+                    <button onclick="addBuiltinWhimsy()">Add</button>
+                    <input type="file" id="whimsyfile" accept=".svg" style="display:none" onchange="loadWhimsyFile()">
+                </td>
+            </tr>
+            <tr>
+                <td colspan="3">
+                    <table id="whimsylist"></table>
+                    <div id="whimsyhint" style="display:none;font-size:90%;color:#555">
+                        X/Y is the centre of the piece, in mm from the top-left of the puzzle (empty = centred).
+                        After generating, click in the preview to move the selected piece there.
+                    </div>
+                    <div id="whimsywarn" style="color:#c62828"></div>
+                </td>
+            </tr>
+            <tr>
                 <td><button onclick="generate()">Generate Jigsaw</button></td>
             </tr>
             <tr>
@@ -1320,7 +1569,7 @@
     <script>
         document.getElementById("default").click();
     </script>
-    <svg id="svgcontainer"></svg>
+    <svg id="svgcontainer" onclick="previewClick(event)" style="cursor:crosshair"></svg>
     <canvas id="automata"></canvas>
     <div id="layercnt"></div>
 

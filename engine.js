@@ -909,7 +909,7 @@
             wpaths.forEach((p, i) => {
                 var bb = p.getBBox(), w = whimsies[i];
                 boxes.push(bb);
-                var mg = Math.max(2 * cs, (typeof S !== "undefined" ? S.piece * 0.3 : 0));
+                var mg = Math.max(2 * cs, (typeof S !== "undefined" ? S.piece * 0.1 : 0));
                 if (bb.x < mg || bb.y < mg || bb.x + bb.width > customborder.width - mg || bb.y + bb.height > customborder.height - mg)
                     warnings.push(w.name + " ligger for nær kanten (eller utenfor) puslespillet.");
                 if (Math.min(bb.width, bb.height) < 4 * cs)
@@ -1058,6 +1058,7 @@
                 //     automata.paintmask(context,customborder.paths);
                 // }
                 automata.gridseed(gsize, gnoise);
+                if (window.afterSeed) window.afterSeed(automata);
                 palette = ImageTracer.generatepalette(automata.seedpoints.length + 1);
                 Shuffle(palette);
                 palette.forEach((c) => {

@@ -6,14 +6,12 @@ Use online at https://proceduraljigsaw.github.io/CustomShapeJigsawJs/ and read t
 
 ## Fork: Puslespillgenerator
 
-A Norwegian UI on top of the original engine, for laser-cut wooden puzzles:
+A Norwegian UI on top of the original engine, for laser-cut wooden puzzles, built around the puzzle's photo:
 
-- Rectangle (with size presets) or your own SVG outline, sized in mm.
-- Piece size, style (classic / organic / wild) and knob size; live preview on a plywood-coloured board.
-- Classic knobs (narrow neck, round head) sized from the piece size; short edges stay straight.
-- Shaped (whimsy) pieces: butterfly, fish, star, heart or your own SVG. Drag them in the preview; a lock check warns about shapes that would fall out.
-- Optional photo shown under the puzzle in the preview only.
+- **Photo first.** If the photo has a plain (white or single-colour) background, the motif's outline becomes the puzzle's shape. Otherwise choose a rectangle or load an SVG outline. The photo is shown under the puzzle in the preview only.
+- **Figure pieces from the photo.** Click the parts of a figure (magic wand), or draw its outline by hand. The figure becomes its own piece, clipped to stay inside the puzzle, and follows the photo when the puzzle is resized. A figure can be split into several pieces that interlock with knobs.
+- Piece size, style (classic / organic / wild) and knob size; classic knobs (narrow neck, round head) sized from the piece size.
+- Quality checks (`quality.js`): too small or too thin pieces are merged; knobs keep 1 mm clearance from other lines (flipped, moved, shrunk or straightened otherwise); cuts that would run through a figure are trimmed, and cuts that stop short of an outline are extended; any remaining crossing is marked in the preview.
 - Download: SVG in millimetres with 0.1 mm lines.
-- Quality checks (`quality.js`): pieces that are too small or too thin are merged into a neighbour; every knob keeps 1 mm clearance from other lines (colliding knobs are flipped, moved, shrunk or straightened); edges that would cut through a shaped piece are trimmed where they meet its outline; any remaining crossing is marked in the preview.
 
-Files: `engine.js` is the original generator (lightly patched), `app.js` is the new UI and knob shape, `quality.js` the cutting checks, `index.html` the page.
+Files: `engine.js` is the original generator (lightly patched, with hooks), `app.js` the UI and knob shape, `image.js` photo processing, `quality.js` the cutting checks, `index.html` the page.

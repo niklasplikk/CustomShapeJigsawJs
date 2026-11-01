@@ -342,6 +342,29 @@
         #stage.withphoto .cuts { filter: drop-shadow(0 0 1px rgba(0, 0, 0, .85)); }
         #stage.withphoto .cuts path, #stage.withphoto .cuts rect { stroke: #fff !important; }
         #stage.dragging .cuts { opacity: .2; }
+        #stage.picking { cursor: crosshair; }
+        #stage.picking .cuts { opacity: .25; }
+        #stage.picking .marks, #stage.picking .whimsyfills { display: none; }
+        #stage .pickline { fill: none; stroke: var(--accent); stroke-width: 2.5px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+        .pickbar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+            background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 14px;
+        }
+        .pickbar p { margin: 0; flex: 1 1 260px; font-size: 0.92rem; }
+        .pickctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .pickctl .seg { min-width: 160px; }
+        .tol { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+        .tol input { width: 110px; }
+        .pickbtns { display: flex; gap: 8px; }
+        .pickbtns .btn.primary { font-size: 0.95rem; padding: 10px 14px; }
+        .pickrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn:disabled { opacity: .5; cursor: default; }
+        .seg button:disabled { opacity: .45; cursor: default; }
+        .linkbtn.small { font-size: 0.85rem; align-self: flex-start; }
+        .stepper { display: inline-flex; align-items: center; gap: 8px; }
+        .stepper output { min-width: 1.5em; text-align: center; font-weight: 600; color: var(--ink); }
+        .btn.small { padding: 2px 10px; font-size: 1rem; line-height: 1.4; border-radius: 8px; }
+        .chip.anchor { color: var(--muted); font-weight: 500; }
         #stage .marks circle { fill: none; stroke: var(--bad); stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
         #stage.dragging .marks { display: none; }
         .check { font-size: 0.85rem; font-weight: 600; }
@@ -373,6 +396,11 @@
 
         @media (max-width: 820px) {
             .app { grid-template-columns: 1fr; height: auto; }
+            .preview.picking-on { height: 88vh; }
+            .pickbar { padding: 8px 10px; gap: 8px; }
+            .pickbar p { font-size: 0.82rem; flex-basis: 100%; }
+            .tol input { width: 80px; }
+            .pickbtns .btn { padding: 8px 12px; }
             .preview {
                 order: -1;
                 height: 50vh;
@@ -396,6 +424,7 @@
     <script src="imagetracer.js"></script>
     <script src="flatten.js"></script>
     <script src="engine.js"></script>
+    <script src="image.js"></script>
     <script src="app.js"></script>
     <script src="quality.js"></script>
 </head>
@@ -409,10 +438,29 @@
             </header>
 
             <section class="step">
-                <h2><span class="n">1</span>Form</h2>
-                <div class="seg" id="shapeSeg" role="group" aria-label="Form på puslespillet">
-                    <button type="button" data-v="rect" aria-pressed="true">Rektangel</button>
-                    <button type="button" data-v="custom" aria-pressed="false">Egen form</button>
+                <h2><span class="n">1</span>Bilde og form</h2>
+                <div class="field">
+                    <span class="label">Bilde</span>
+                    <label class="drop" id="photoPick">
+                        <strong>Velg bildet til puslespillet</strong>
+                        <span class="hint">Valgfritt. Har bildet hvit eller ensfarget bakgrunn, blir motivets omriss formen på puslespillet.</span>
+                        <input type="file" id="photoFile" accept="image/*" hidden>
+                    </label>
+                    <div id="photoLoaded" class="loaded" hidden>
+                        <span class="fname" id="photoName"></span>
+                        <label class="toggle"><input type="checkbox" id="photoToggle" checked> Vis</label>
+                        <label class="linkbtn">Bytt<input type="file" accept="image/*" hidden onchange="document.getElementById('photoFile').files = this.files; document.getElementById('photoFile').dispatchEvent(new Event('change'))"></label>
+                        <button type="button" class="linkbtn" id="photoRemove">Fjern</button>
+                    </div>
+                </div>
+
+                <div class="field">
+                    <span class="label">Form</span>
+                    <div class="seg" id="shapeSeg" role="group" aria-label="Form på puslespillet">
+                        <button type="button" data-v="rect" aria-pressed="true">Rektangel</button>
+                        <button type="button" data-v="image" aria-pressed="false" disabled>Fra bildet</button>
+                        <button type="button" data-v="svg" aria-pressed="false">SVG-fil</button>
+                    </div>
                 </div>
 
                 <div id="rectOpts" class="field">
@@ -429,7 +477,15 @@
                     </div>
                 </div>
 
-                <div id="customOpts" class="field" hidden>
+                <div id="imgOpts" class="field" hidden>
+                    <div class="dims">
+                        <label class="num"><input id="imgW" type="number" inputmode="decimal" value="300" min="20" aria-label="Bredde"><span>mm bred</span></label>
+                        <span class="hint">× <span id="imgH">–</span> mm høy</span>
+                    </div>
+                    <p class="hint">Omrisset er hentet fra bakgrunnen rundt motivet.</p>
+                </div>
+
+                <div id="svgOpts" class="field" hidden>
                     <label class="drop" id="drop">
                         <strong>Slipp en SVG her, eller velg fil</strong>
                         <span class="hint">For eksempel en bokstav. Hull, som i A og O, går fint.</span>
@@ -440,17 +496,6 @@
                         <label class="num"><input id="borderW" type="number" inputmode="decimal" min="20" aria-label="Bredde på formen"><span>mm bred</span></label>
                         <span class="hint">× <span id="borderH">–</span> mm høy</span>
                     </div>
-                </div>
-
-                <div class="field">
-                    <span class="label">Bilde (valgfritt)</span>
-                    <label class="btn" style="text-align:center">Velg bilde…<input type="file" id="photoFile" accept="image/*" hidden></label>
-                    <div id="photoLoaded" class="loaded" hidden>
-                        <span class="fname" id="photoName"></span>
-                        <label class="toggle"><input type="checkbox" id="photoToggle" checked> Vis</label>
-                        <button type="button" class="linkbtn" id="photoRemove">Fjern</button>
-                    </div>
-                    <p class="hint">Bildet vises bare i forhåndsvisningen, så du kan legge spesialbrikker over motivet. Det blir ikke med i laserfilen.</p>
                 </div>
             </section>
 
@@ -478,17 +523,22 @@
             </section>
 
             <section class="step">
-                <h2><span class="n">3</span>Spesialbrikker</h2>
-                <p class="hint">Brikker formet som figurer. De sitter fast fordi formen har innsnevringer, så unngå helt runde former.</p>
-                <div class="gallery" id="gallery"></div>
+                <h2><span class="n">3</span>Figurbrikker</h2>
+                <p class="hint">Gjør en figur i bildet til en egen brikke, eller del den i flere biter som pusles for seg. Figuren sitter fast fordi omrisset har innsnevringer.</p>
+                <div class="pickrow">
+                    <button type="button" class="btn" id="pickFromImage" disabled>Velg fra bildet</button>
+                    <button type="button" class="btn" id="drawShape">Tegn selv</button>
+                </div>
+                <p class="hint" id="pickHint">Velg et bilde i steg 1 for å kunne klikke ut figurer.</p>
                 <div class="wlist" id="wlist"></div>
-                <p class="hint" id="whint" hidden>Dra en spesialbrikke i forhåndsvisningen for å flytte den.</p>
+                <p class="hint" id="whint" hidden>Dra en figur i forhåndsvisningen for å flytte den.</p>
+                <label class="linkbtn small">Last inn en figur fra SVG-fil<input type="file" id="whimsySvg" accept=".svg,image/svg+xml" hidden></label>
             </section>
 
             <section class="step">
                 <h2><span class="n">4</span>Last ned</h2>
                 <button type="button" class="btn primary" id="download" disabled>Last ned SVG for laser</button>
-                <p class="hint">Filen er i millimeter med 0,1 mm linjer. Se over den før du kutter, og test gjerne i papp først. Generatoren sjekker ikke om linjer krysser hverandre.</p>
+                <p class="hint">Filen er i millimeter med 0,1 mm linjer. Kryssende linjer og for små biter rettes automatisk, men se over filen før du kutter, og test gjerne i papp først.</p>
             </section>
         </aside>
 
@@ -500,6 +550,20 @@
                 <span class="check" id="stat-check"></span>
                 <span class="spacer"></span>
                 <span class="busy" id="busy" hidden>Lager puslespill…</span>
+            </div>
+            <div class="pickbar" id="pickbar" hidden>
+                <p id="pickMsg"></p>
+                <div class="pickctl" id="pickWand">
+                    <div class="seg" id="pickOp" role="group" aria-label="Legg til eller fjern">
+                        <button type="button" data-v="add" aria-pressed="true">Legg til</button>
+                        <button type="button" data-v="sub" aria-pressed="false">Fjern</button>
+                    </div>
+                    <label class="tol">Følsomhet <input type="range" id="pickTol" min="10" max="90" value="40"></label>
+                </div>
+                <div class="pickbtns">
+                    <button type="button" class="btn" id="pickCancel">Avbryt</button>
+                    <button type="button" class="btn primary" id="pickDone" disabled>Lag figurbrikke</button>
+                </div>
             </div>
             <div class="stagewrap">
                 <svg id="stage" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Forhåndsvisning av puslespillet"></svg>

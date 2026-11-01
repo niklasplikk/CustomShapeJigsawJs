@@ -7,6 +7,83 @@
 
 var cutReport = { merged: 0, filled: 0, fixed: 0, straightened: 0, crossings: [] };
 
+// ------------------------------------------------------------------ 0. shaped pieces split in several
+// A shaped piece normally becomes one piece: its inside is masked off and only its outline is cut.
+// When it should be split into N pieces, its inside (minus a one-cell band along the outline, so
+// nothing can grow across the outline) is opened up again and given N seeds of its own, placed
+// by k-means so the pieces come out about equal. Normal knobs then appear between those pieces.
+var multiLabels = new Set();
+var multiCount = 0;
+var multiInfo = [];      // [{path, piece}] used by gentab to size knobs inside split figures
+
+function afterSeed(a) {
+    multiLabels = new Set();
+    multiCount = 0;
+    multiInfo = [];
+    const cell = parseFloat($("cell_scale").value);
+    const R = a.rows, C = a.columns;
+    let next = a.seedpoints.reduce((m, s) => Math.max(m, s.val), 0) + 1;
+    whimsies.forEach((w, wi) => {
+        const n = Math.max(1, Math.min(8, w.pieces || 1));
+        if (n < 2) return;
+        const path = document.getElementById("whimsy-" + wi);
+        if (!path) return;
+        const bb = path.getBBox();
+        const r0 = Math.max(0, Math.floor(bb.y / cell) - 1), r1 = Math.min(R - 1, Math.ceil((bb.y + bb.height) / cell) + 1);
+        const c0 = Math.max(0, Math.floor(bb.x / cell) - 1), c1 = Math.min(C - 1, Math.ceil((bb.x + bb.width) / cell) + 1);
+        const nearOutline = (i, j) => {
+            for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+                const ii = i + di, jj = j + dj;
+                if (ii < 0 || jj < 0 || ii >= R || jj >= C || a.borderdistgrid[ii][jj]) return true;
+            }
+            return false;
+        };
+        const cells = [];
+        for (let i = r0; i <= r1; i++) for (let j = c0; j <= c1; j++) {
+            if (nearOutline(i, j)) continue;
+            if (!path.isPointInFill(new DOMPoint(j * cell + cell / 2, i * cell + cell / 2))) continue;
+            cells.push([i, j]);
+        }
+        if (cells.length < n * 6) return;
+        cells.forEach(([i, j]) => { a.maskgrid[i][j] = 0; a.grid[i][j] = 0; });
+
+        // k-means on the free cells; start from points spread out along the shape
+        let cx = 0, cy = 0;
+        cells.forEach(([i, j]) => { cx += j; cy += i; });
+        cx /= cells.length; cy /= cells.length;
+        const centres = [];
+        let far = cells.reduce((b, p) => (Math.hypot(p[1] - cx, p[0] - cy) > Math.hypot(b[1] - cx, b[0] - cy) ? p : b), cells[0]);
+        centres.push([far[0], far[1]]);
+        while (centres.length < n) {
+            let best = null, bd = -1;
+            cells.forEach((p) => {
+                const d = Math.min(...centres.map((c) => Math.hypot(p[0] - c[0], p[1] - c[1])));
+                if (d > bd) { bd = d; best = p; }
+            });
+            centres.push([best[0], best[1]]);
+        }
+        for (let it = 0; it < 12; it++) {
+            const sum = centres.map(() => [0, 0, 0]);
+            cells.forEach((p) => {
+                let k = 0, kd = Infinity;
+                centres.forEach((c, ci) => { const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2; if (d < kd) { kd = d; k = ci; } });
+                sum[k][0] += p[0]; sum[k][1] += p[1]; sum[k][2]++;
+            });
+            sum.forEach((s, ci) => { if (s[2]) centres[ci] = [s[0] / s[2], s[1] / s[2]]; });
+        }
+        centres.forEach((c) => {
+            // snap the seed to the nearest free cell
+            const p = cells.reduce((b, q) => ((q[0] - c[0]) ** 2 + (q[1] - c[1]) ** 2 < (b[0] - c[0]) ** 2 + (b[1] - c[1]) ** 2 ? q : b), cells[0]);
+            const val = next++;
+            a.grid[p[0]][p[1]] = val;
+            a.seedpoints.push({ row: p[0], col: p[1], val: val });
+            multiLabels.add(val);
+        });
+        multiCount++;
+        multiInfo.push({ path: path, piece: Math.sqrt((cells.length * cell * cell) / n) });
+    });
+}
+
 // ------------------------------------------------------------------ 1. small pieces
 function beforePaint(a) {
     const R = a.rows, C = a.columns, g = a.grid, mask = a.maskgrid;
@@ -69,8 +146,9 @@ function beforePaint(a) {
         let victim = 0, vArea = Infinity;
         area.forEach((A, l) => {
             if (stuck.has(l)) return;
-            const thin = (2 * A) / (per.get(l) || 1) < minWidth;
-            if ((A < minArea || thin) && A < vArea) { victim = l; vArea = A; }
+            const f = multiLabels.has(l) ? 0.4 : 1;   // pieces inside a split shape may be smaller
+            const thin = (2 * A) / (per.get(l) || 1) < minWidth * f;
+            if ((A < minArea * f || thin) && A < vArea) { victim = l; vArea = A; }
         });
         if (!victim) break;
         const nb = shared.get(victim);
@@ -85,7 +163,8 @@ function beforePaint(a) {
 
     const labels = new Set();
     for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) if (g[i][j] && !mask[i][j]) labels.add(g[i][j]);
-    $("piececount").innerHTML = labels.size;
+    // the engine adds one piece per shaped piece afterwards; split shapes are already counted
+    $("piececount").innerHTML = labels.size - multiCount;
     cutReport = { merged: merged, filled: filled, fixed: 0, straightened: 0, crossings: [] };
 }
 
@@ -183,6 +262,67 @@ function outlinePolylines() {
     return lines;
 }
 
+// An edge whose end touches neither the outline nor another edge leaves two pieces joined.
+// That happens next to the outline of a figure split into pieces (its inside is kept one cell
+// away from the outline). Such ends are extended straight on until they meet the outline.
+function extendDangling(hash, changes) {
+    const cell = parseFloat($("cell_scale").value);
+    const key = (p) => Math.round(p.x / 0.4) + "," + Math.round(p.y / 0.4);
+    const count = new Map();
+    edgeLog.forEach((e) => [e.v1, e.v2].forEach((p) => {
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+            const k = (Math.round(p.x / 0.4) + dx) + "," + (Math.round(p.y / 0.4) + dy);
+            count.set(k, (count.get(k) || 0) + 1);
+        }
+    }));
+    const onOutline = (p) => {
+        let hit = false;
+        hash.near(p.x, p.y, 0.6, (s) => { if (distPtSeg(p.x, p.y, s) < 0.6) { hit = true; return false; } });
+        return hit;
+    };
+    const reach = 5 * cell;
+    edgeLog.forEach((e) => {
+        let changed = false;
+        const oldD = e.d, oldL = e.L;
+        ["v1", "v2"].forEach((end) => {
+            const p = e[end], q = end === "v1" ? e.v2 : e.v1;
+            if ((count.get(key(p)) || 0) > 1 || onOutline(p)) return;
+            const L = Math.hypot(p.x - q.x, p.y - q.y) || 1;
+            const dir = { x: (p.x - q.x) / L, y: (p.y - q.y) / L };
+            const far = { x: p.x + dir.x * reach, y: p.y + dir.y * reach };
+            let best = null, bd = Infinity;
+            hash.near((p.x + far.x) / 2, (p.y + far.y) / 2, reach / 2 + HASH, (s) => {
+                const x = segIntersect(p, far, s);
+                if (!x) return;
+                const d = Math.hypot(x.x - p.x, x.y - p.y);
+                if (d < bd) { bd = d; best = x; }
+            });
+            if (!best) {
+                // no outline straight ahead: go to the nearest outline point instead
+                hash.near(p.x, p.y, reach, (s) => {
+                    const vx = s.bx - s.ax, vy = s.by - s.ay, L2 = vx * vx + vy * vy || 1;
+                    const t = Math.max(0, Math.min(1, ((p.x - s.ax) * vx + (p.y - s.ay) * vy) / L2));
+                    const c = { x: s.ax + t * vx, y: s.ay + t * vy }, d = Math.hypot(c.x - p.x, c.y - p.y);
+                    if (d < bd && d < reach) { bd = d; best = c; }
+                });
+            }
+            if (!best) return;
+            e[end] = best;
+            changed = true;
+        });
+        if (!changed) return;
+        e.L = Math.hypot(e.v2.x - e.v1.x, e.v2.y - e.v1.y);
+        if (e.k) {
+            const k = Object.assign({}, e.k, { t: (e.k.t * oldL) / e.L });
+            e.k = k; e.segs = knobGeometry(e.v1, e.v2, k);
+        }
+        e.d = e.segs ? knobD(e.v1, e.segs) : straightD(e.v1, e.v2);
+        e.orig = oldD;
+        changes.push([oldD, e.d]);
+        cutReport.fixed++;
+    });
+}
+
 // An edge that ends on a shaped piece or the border sometimes has its end snapped to the wrong
 // side of a curve, so its straight part cuts through the shape. Cut it off where it first meets
 // the outline instead.
@@ -216,7 +356,7 @@ function trimToOutline(hash, changes) {
         const inner = end2 ? e.v1 : e.v2, outer = end2 ? e.v2 : e.v1;
         const x = firstHit(inner, outer);
         if (!x) return;
-        const oldD = e.d, oldL = e.L;
+        const oldD = e.orig || e.d, oldL = e.L;
         if (end2) e.v2 = x; else e.v1 = x;
         e.L = Math.hypot(e.v2.x - e.v1.x, e.v2.y - e.v1.y);
         if (e.k) {
@@ -235,6 +375,7 @@ function checkCuts() {
     const hash = new SegHash();
     outlinePolylines().forEach((pl) => hash.addPolyline("outline", pl));
     const changes = [];
+    extendDangling(hash, changes);
     trimToOutline(hash, changes);
     edgeLog.forEach((e, i) => hash.addPolyline(i, edgePolyline(e)));
 

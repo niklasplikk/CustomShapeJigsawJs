@@ -153,6 +153,7 @@ function regen(delay) {
             edgeLog = [];
             generate();
             checkCuts();
+            mergeEdgeFigures();
             generated = true;
             renderStage();
         } catch (e) {
@@ -174,7 +175,7 @@ function renderStage() {
     const inner = svgstr.slice(svgstr.indexOf(">") + 1, svgstr.lastIndexOf("</svg>"));
     const shapes = window.lastShapes || [];
     const boardD = shapes.filter((s) => !s.whimsy).map((s) => s.d).join(" ");
-    const wpaths = shapes.filter((s) => s.whimsy).map((s) => s.d);
+    const wpaths = shapes.filter((s) => s.whimsy).map((s) => s.dCut || s.d);
     const stage = $("stage");
     const pad = Math.max(W, H) * 0.03;
     stage.setAttribute("viewBox", [-pad, -pad, W + 2 * pad, H + 2 * pad].join(" "));
@@ -331,34 +332,68 @@ function wandClick(evt) {
     const sub = PICK.op === "sub" || evt.altKey;
     const r = sub ? dilate(region, 1, IMG.pw, IMG.ph) : region;
     for (let i = 0; i < n; i++) if (r[i]) PICK.sel[i] = sub ? 0 : 1;
-    PICK.outline = maskArea(PICK.sel) > 30 ? maskToOutline(clipToBoard(finishSelection(PICK.sel))) : null;
+    PICK.outline = null;
+    if (maskArea(PICK.sel) > 30) {
+        const c = clipToBoard(finishSelection(PICK.sel));
+        PICK.outline = maskToOutline(c.mask);
+        if (PICK.outline) PICK.outline.edge = c.edge;
+    }
     $("pickDone").disabled = !PICK.outline;
     drawOverlay();
 }
 
-// Keep a picked figure inside the puzzle, with a margin so the pieces around it aren't slivers.
+// Keep a picked figure inside the puzzle. Where it comes close to the outer edge, the narrow gap
+// between them is added to the figure, so the figure reaches the edge instead of leaving thin
+// pieces behind it. The figure stays a hair (under one grid cell) inside the edge so the engine
+// sees it as a separate shape; mergeEdgeFigures() lines the two up again in the cut file.
 function clipToBoard(m) {
-    const mp = imageMap(), W = IMG.pw, H = IMG.ph;
-    const margin = (S.piece * 0.12) / mp.s / IMG.k;    // mm -> processing px
-    let inner;
+    const mp = imageMap(), W = IMG.pw, H = IMG.ph, N = W * H;
+    const pxPerMm = 1 / (mp.s * IMG.k);
+    let board;
     if (S.shape === "image" && IMG.bg && IMG.bg.mask) {
-        inner = erode(IMG.bg.mask, margin, W, H);
+        board = IMG.bg.mask;
     } else {
         const b = boardSize();
-        const x0 = ((0 - mp.ox) / mp.s) / IMG.k + margin, x1 = ((b.w - mp.ox) / mp.s) / IMG.k - margin;
-        const y0 = ((0 - mp.oy) / mp.s) / IMG.k + margin, y1 = ((b.h - mp.oy) / mp.s) / IMG.k - margin;
-        inner = new Uint8Array(W * H);
+        const x0 = ((0 - mp.ox) / mp.s) / IMG.k, x1 = ((b.w - mp.ox) / mp.s) / IMG.k;
+        const y0 = ((0 - mp.oy) / mp.s) / IMG.k, y1 = ((b.h - mp.oy) / mp.s) / IMG.k;
+        board = new Uint8Array(N);
         for (let y = Math.max(0, Math.ceil(y0)); y < Math.min(H, y1); y++)
-            for (let x = Math.max(0, Math.ceil(x0)); x < Math.min(W, x1); x++) inner[y * W + x] = 1;
+            for (let x = Math.max(0, Math.ceil(x0)); x < Math.min(W, x1); x++) board[y * W + x] = 1;
     }
-    const o = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i++) o[i] = m[i] && inner[i] ? 1 : 0;
-    return largestComponent(o, W, H).mask;
+    const eps = Math.max(1, 0.6 * cellSize() * pxPerMm);
+    const gap = 0.25 * S.piece * pxPerMm;
+    const outside = new Uint8Array(N), f = new Uint8Array(N), both = new Uint8Array(N);
+    for (let i = 0; i < N; i++) { outside[i] = board[i] ? 0 : 1; f[i] = m[i] && board[i] ? 1 : 0; both[i] = f[i] || outside[i]; }
+    const near = dilate(outside, gap, W, H);
+    const closed = closeMask(both, gap / 2, W, H);
+    for (let i = 0; i < N; i++) if (!f[i] && closed[i] && board[i] && near[i]) f[i] = 1;
+    // small pockets shut in between the figure and the edge would become loose bits: fill them
+    const minPocket = Math.pow(0.6 * S.piece * pxPerMm, 2);
+    const lab = new Int32Array(N), stack = new Int32Array(N);
+    let nl = 0;
+    for (let st = 0; st < N; st++) {
+        if (lab[st] || f[st] || !board[st]) continue;
+        nl++; let sp = 0; const comp = [];
+        lab[st] = nl; stack[sp++] = st;
+        while (sp) {
+            const i = stack[--sp], x = i % W; comp.push(i);
+            const nb = [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i >= W ? i - W : -1, i < N - W ? i + W : -1];
+            for (const q of nb) if (q >= 0 && !lab[q] && !f[q] && board[q]) { lab[q] = nl; stack[sp++] = q; }
+        }
+        if (comp.length < minPocket) comp.forEach((i) => { f[i] = 1; });
+    }
+    const inner = erode(board, eps, W, H);
+    for (let i = 0; i < N; i++) f[i] = f[i] && inner[i] ? 1 : 0;
+    const out = largestComponent(f, W, H).mask;
+    const band = dilate(outside, eps + 2, W, H);
+    let edge = false;
+    for (let i = 0; i < N && !edge; i++) if (out[i] && band[i]) edge = true;
+    return { mask: out, edge: edge };
 }
 
 function finishWand() {
     if (!PICK.outline) return;
-    addImageWhimsy(PICK.outline.d, PICK.outline.box);
+    addImageWhimsy(PICK.outline.d, PICK.outline.box, PICK.outline.edge);
     endPick();
 }
 
@@ -370,12 +405,18 @@ function finishDraw() {
     const m = imageMap();
     if (m) {
         // keep it tied to the photo, like a picked shape
+        // rasterise the drawing so it gets the same edge handling as a picked figure
         const px = pts.map((q) => stageToImage(q));
-        const d = "M " + px.map((q) => q.x.toFixed(1) + " " + q.y.toFixed(1)).join(" L ") + " Z";
-        const xs = px.map((q) => q.x), ys = px.map((q) => q.y);
-        const box = { x: Math.min(...xs), y: Math.min(...ys) };
-        box.w = Math.max(...xs) - box.x; box.h = Math.max(...ys) - box.y;
-        addImageWhimsy(d, box);
+        const cv = document.createElement("canvas");
+        cv.width = IMG.pw; cv.height = IMG.ph;
+        const cx = cv.getContext("2d");
+        cx.beginPath();
+        px.forEach((q, k) => (k ? cx.lineTo(q.x / IMG.k, q.y / IMG.k) : cx.moveTo(q.x / IMG.k, q.y / IMG.k)));
+        cx.closePath(); cx.fillStyle = "#000"; cx.fill();
+        const data = cx.getImageData(0, 0, IMG.pw, IMG.ph).data, mask = new Uint8Array(IMG.pw * IMG.ph);
+        for (let k = 0; k < mask.length; k++) mask[k] = data[k * 4 + 3] > 127 ? 1 : 0;
+        const c = clipToBoard(mask), o = maskToOutline(c.mask);
+        if (o) addImageWhimsy(o.d, o.box, c.edge);
     } else {
         const h = half();
         const mm = pts.map((q) => ({ x: q.x - h, y: q.y - h }));
@@ -398,13 +439,14 @@ function nextName() {
     return "Figur " + n;
 }
 
-function addImageWhimsy(d, box) {
+function addImageWhimsy(d, box, edge) {
     const shape = normaliseWhimsy(d);
     const areaMm = (() => { const m = imageMap(); return box.w * box.h * m.s * m.s * 0.6; })();
     const suggested = Math.max(1, Math.min(4, Math.round(areaMm / (S.piece * S.piece * 1.6))));
     whimsies.push({
         name: nextName(), d: shape.d, w0: shape.w0, h0: shape.h0, solidity: shape.solidity,
         anchor: { cx: box.x + box.w / 2, cy: box.y + box.h / 2, wpx: box.w },
+        edge: !!edge,
         x: 0, y: 0, width: 0, rot: 0, pieces: suggested,
     });
     selectedWhimsy = whimsies.length - 1;

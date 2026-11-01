@@ -910,7 +910,7 @@
                 var bb = p.getBBox(), w = whimsies[i];
                 boxes.push(bb);
                 var mg = Math.max(2 * cs, (typeof S !== "undefined" ? S.piece * 0.1 : 0));
-                if (bb.x < mg || bb.y < mg || bb.x + bb.width > customborder.width - mg || bb.y + bb.height > customborder.height - mg)
+                if (!w.edge && (bb.x < mg || bb.y < mg || bb.x + bb.width > customborder.width - mg || bb.y + bb.height > customborder.height - mg))
                     warnings.push(w.name + " ligger for nær kanten (eller utenfor) puslespillet.");
                 if (Math.min(bb.width, bb.height) < 4 * cs)
                     warnings.push(w.name + " er for liten. Gjør den større, eller gjør brikkene mindre.");

@@ -450,3 +450,109 @@ function checkCuts() {
     });
     cutReport.crossings = found;
 }
+
+// ------------------------------------------------------------------ 3. figures on the outer edge
+// A figure that reaches the outer edge sits a hair inside it (so the engine keeps them apart).
+// In the cut file that would give two lines a fraction of a millimetre apart. Here the figure's
+// outline is snapped onto the edge and the edge is left out where the figure already cuts it,
+// so every line is cut once.
+function samplePath(d, step) {
+    const holder = document.createElementNS(NS, "svg");
+    holder.setAttribute("style", "position:absolute;left:-100000px;top:0");
+    document.body.appendChild(holder);
+    const out = [];
+    d.split(/(?=M)/).forEach((sub) => {
+        if (!sub.trim()) return;
+        const p = document.createElementNS(NS, "path");
+        p.setAttribute("d", sub);
+        holder.appendChild(p);
+        const len = p.getTotalLength(), n = Math.max(8, Math.ceil(len / step)), pts = [];
+        for (let i = 0; i < n; i++) { const q = p.getPointAtLength((len * i) / n); pts.push({ x: q.x, y: q.y }); }
+        out.push(pts);
+    });
+    document.body.removeChild(holder);
+    return out;
+}
+
+function mergeEdgeFigures() {
+    if (!window.lastShapes) return;
+    const figs = lastShapes.map((s, i) => ({ s: s, i: i })).filter((o) => o.s.whimsy);
+    const borders = lastShapes.filter((s) => !s.whimsy);
+    if (!figs.length || !borders.length) return;
+    const cell = parseFloat($("cell_scale").value);
+    const D = cell + 0.3, STEP = 0.3;
+
+    // index of all border points/segments
+    const bHash = new SegHash();
+    const borderPolys = borders.map((b) => ({ d: b.d, polys: samplePath(b.d, STEP) }));
+    borderPolys.forEach((b) => b.polys.forEach((pl) => hashClosed(bHash, "b", pl)));
+
+    const fHash = new SegHash();
+    const figPolys = [];
+    figs.forEach((f) => {
+        const polys = samplePath(f.s.d, STEP);
+        const touches = polys.some((pl) => pl.some((p) => nearest(bHash, p, D)));
+        if (!touches) return;
+        polys.forEach((pl) => hashClosed(fHash, "f", pl));
+        figPolys.push({ d: f.s.d, polys: polys, i: f.i });
+    });
+    if (!figPolys.length) return;
+
+    const replace = (o, n) => {
+        svgstr = svgstr.split('d="' + o + '"').join('d="' + n + '"');
+        svgstrsave = svgstrsave.split('d="' + o + '"').join('d="' + n + '"');
+    };
+    const fmt = (p) => p.x.toFixed(3) + " " + p.y.toFixed(3);
+
+    // figures: points close to the edge move onto it
+    figPolys.forEach((f) => {
+        const d = f.polys.map((pl) => "M " + pl.map((p) => { const c = nearest(bHash, p, D); return fmt(c ? c.pt : p); }).join(" L ") + " Z").join(" ");
+        replace(f.d, d);
+        lastShapes[f.i].dCut = d;
+    });
+
+    // border: drop the stretches a figure already cuts, keep the rest as open lines
+    borderPolys.forEach((b) => {
+        let changed = false;
+        const parts = [];
+        b.polys.forEach((pl) => {
+            const covered = pl.map((p) => !!nearest(fHash, p, D));
+            if (!covered.some(Boolean)) { parts.push("M " + pl.map(fmt).join(" L ") + " Z"); return; }
+            changed = true;
+            const n = pl.length;
+            let s0 = covered.findIndex((c) => c);           // start right after a covered stretch
+            while (covered[(s0 + 1) % n]) s0 = (s0 + 1) % n;
+            let run = [pl[s0]];
+            for (let k = 1; k <= n; k++) {
+                const idx = (s0 + k) % n;
+                if (covered[idx]) {
+                    if (run.length > 1) { run.push(pl[idx]); parts.push("M " + run.map(fmt).join(" L ")); }
+                    run = [pl[idx]];
+                } else {
+                    run.push(pl[idx]);
+                }
+            }
+            if (run.length > 1) parts.push("M " + run.map(fmt).join(" L "));
+        });
+        if (changed) replace(b.d, parts.join(" "));
+    });
+}
+
+function hashClosed(hash, owner, pl) {
+    for (let k = 0; k < pl.length; k++) {
+        const a = pl[k], b = pl[(k + 1) % pl.length];
+        hash.add(owner, a.x, a.y, b.x, b.y);
+    }
+}
+
+// nearest point on any segment in the hash within r, or null
+function nearest(hash, p, r) {
+    let best = null, bd = r;
+    hash.near(p.x, p.y, r, (s) => {
+        const vx = s.bx - s.ax, vy = s.by - s.ay, L2 = vx * vx + vy * vy || 1e-12;
+        const t = Math.max(0, Math.min(1, ((p.x - s.ax) * vx + (p.y - s.ay) * vy) / L2));
+        const c = { x: s.ax + t * vx, y: s.ay + t * vy }, d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d < bd) { bd = d; best = { pt: c, d: d }; }
+    });
+    return best;
+}

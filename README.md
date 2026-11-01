@@ -4,12 +4,15 @@ This is a (pretty broken, but mostly functional) jigsaw generator with custom bo
 It relies on two linbraries from third parties, imagetracerjs and flatten (see respective files) and it also leverages the tab generator from the jigsaw generator by draradech (https://draradech.github.io/jigsaw/index.html)
 Use online at https://proceduraljigsaw.github.io/CustomShapeJigsawJs/ and read the help there for more information
 
-## Fork: shaped (whimsy) pieces
+## Fork: Puslespillgenerator
 
-This fork adds shaped pieces (butterfly, fish, star, heart or your own SVG outline) that the
-Voronoi pieces grow around. Each shape is added to the border as a hole, so its outline is cut
-exactly and the inside becomes one piece. Works with both rectangular and custom borders.
+A Norwegian UI on top of the original engine, for laser-cut wooden puzzles:
 
-- Add a shape, set X/Y (centre, mm from top-left), width and rotation, or click in the preview after generating.
-- "Locks well / weakly / will fall out" compares the shape's area to its convex hull: shapes need notches to stay in the puzzle.
-- Own SVGs: the largest closed outline in the file is used; inner details are ignored.
+- Rectangle (with size presets) or your own SVG outline, sized in mm.
+- Piece size, style (classic / organic / wild) and knob size; live preview on a plywood-coloured board.
+- Classic knobs (narrow neck, round head) sized from the piece size; short edges stay straight.
+- Shaped (whimsy) pieces: butterfly, fish, star, heart or your own SVG. Drag them in the preview; a lock check warns about shapes that would fall out.
+- Optional photo shown under the puzzle in the preview only.
+- Download: SVG in millimetres with 0.1 mm lines.
+
+Files: `engine.js` is the original generator (lightly patched), `app.js` is the new UI and knob shape, `index.html` is the page.

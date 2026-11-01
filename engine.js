@@ -1,0 +1,1273 @@
+
+        var xmldoc = null;
+        var timerID;
+        var seed = 1;
+        var tab_size = 0.1;
+        var tab_rel_size = 0.1
+        var tab_abs_size = 2;
+        var tab_min_size = 1.5;
+        var tab_max_size = 3;
+        var tab_jitter = 0.1;
+        function $(id) { return document.getElementById(id); }
+        function random() {
+            if ($("ndr").checked) {
+                return Math.random();
+            } else {
+                var x = Math.sin(seed) * 10000; seed += 1; return x - Math.floor(x);
+            }
+        }
+        function updateseed() { $("_seed").value = $("seed").value; }
+        function update_seed() { var val = parseInt($("_seed").value); if (!isNaN(val)) { $("seed").value = val; } updateseed(); }
+        function uniform(min, max) { var ran = random(); return min + ran * (max - min); }
+        function rbool() { return random() > 0.5; }
+        function Shuffle(arr) {
+            for (var i = arr.length - 1; i > 0; i--) {
+                var j = Math.floor(random() * (i + 1)); //random index
+                [arr[i], arr[j]] = [arr[j], arr[i]]; // swap
+            }
+        }
+
+        function next() { flip = rbool(); a = uniform(-tab_jitter, tab_jitter); b = uniform(-tab_jitter, tab_jitter); c = uniform(-tab_jitter, tab_jitter); d = uniform(-tab_jitter, tab_jitter); e = uniform(-tab_jitter, tab_jitter); }
+        function l(v) { return v; }
+        function w(v) { return v * (flip ? -1.0 : 1.0); }
+        function p0() { return { l: l(0.0), w: w(0.0), }; }
+        function p1() { return { l: l(0.2), w: w(a), }; }
+        function p2() { return { l: l(0.5 + b + d), w: w(-tab_size + c), }; }
+        function p3() { return { l: l(0.5 - tab_size + b), w: w(tab_size + c), }; }
+        function p4() { return { l: l(0.5 - 2.0 * tab_size + b - d), w: w(3.0 * tab_size + c), }; }
+        function p5() { return { l: l(0.5 + 2.0 * tab_size + b - d), w: w(3.0 * tab_size + c), }; }
+        function p6() { return { l: l(0.5 + tab_size + b), w: w(tab_size + c), }; }
+        function p7() { return { l: l(0.5 + b + d), w: w(-tab_size + c), }; }
+        function p8() { return { l: l(0.8), w: w(e), }; }
+        function p9() { return { l: l(1.0), w: w(0.0), }; }
+
+        function scale(x, y) {
+            return {
+                x: x * (1.0 / (2 * n - 4.0 / 3)) * radius,
+                y: y * (1.0 / (2 * n - 4.0 / 3)) * radius * Math.sqrt(0.75),
+            };
+        }
+
+        function rotate(vec, rot) {
+            var cs = Math.cos(rot);
+            var sn = Math.sin(rot);
+
+            return {
+                x: vec.x * cs - vec.y * sn,
+                y: vec.x * sn + vec.y * cs,
+            };
+        }
+
+        function translate(vec) {
+            return {
+                x: vec.x + radius + offset,
+                y: vec.y + radius + offset,
+            };
+        }
+        function process_r(x, y, rot) {
+            return translate(rotate(scale(x, y), rot));
+        }
+
+        function process(x, y) {
+            return process_r(x, y, 0);
+        }
+
+        function sub(v1, v2) {
+            return {
+                x: v1.x - v2.x,
+                y: v1.y - v2.y,
+            };
+        }
+
+        function rot90(v) {
+            return {
+                x: -v.y,
+                y: v.x,
+            };
+        }
+
+        function add(v1, v2) {
+            return {
+                x: v1.x + v2.x,
+                y: v1.y + v2.y,
+            };
+        }
+
+        function mul(s, v) {
+            return {
+                x: s * v.x,
+                y: s * v.y,
+            };
+        }
+
+        function lerp(p, v1, v2, op) {
+            dl = sub(v2, v1);
+            dw = rot90(dl);
+            var vec = add(v1, mul(p.l, dl));
+            vec = add(vec, mul(p.w, dw));
+            return op + vec.x + " " + vec.y + " ";
+        }
+
+        function gentab(v1, v2, isnew) {
+            var length = Math.hypot(v2.x - v1.x, v2.y - v1.y);
+
+            switch ($("tabsizemode").value) {
+
+                case "rel":
+                    tab_size = tab_rel_size;
+                    break;
+                case "rabs":
+                    tab_size = tab_rel_size;
+                    if ((tab_rel_size * length) < tab_min_size) {
+                        tab_size = tab_min_size / length;
+                    }
+                    if ((tab_rel_size * length) > tab_max_size) {
+                        tab_size = tab_max_size / length;
+                    }
+                    break;
+                case "abs":
+                    tab_size = tab_abs_size / length;
+                    break;
+            }
+
+            var str = "";
+            next();
+            if (isnew) {
+                str += lerp(p0(), v1, v2, "M ");
+            }
+            str += lerp(p1(), v1, v2, "C ");
+            str += lerp(p2(), v1, v2, "");
+            str += lerp(p3(), v1, v2, "");
+            str += lerp(p4(), v1, v2, "C ");
+            str += lerp(p5(), v1, v2, "");
+            str += lerp(p6(), v1, v2, "");
+            str += lerp(p7(), v1, v2, "C ");
+            str += lerp(p8(), v1, v2, "");
+            str += lerp(p9(), v1, v2, "");
+            return str;
+        }
+
+        function plotpath(path, scale) {
+            var len = path.getTotalLength();
+            var ancestor = path.ownerSVGElement;
+            let cp = [];
+            let uinc = 0.0078125;
+            for (let u = 0; u <= 1; u += uinc) {
+                let p = path.getPointAtLength(u * len);
+                p.rx = p.x / scale;
+                p.ry = p.y / scale;
+                p.x = Math.round(p.x / scale);
+                p.y = Math.round(p.y / scale);
+                p.u = u;
+                p.path = path;
+                if (cp.length && (Math.abs(cp[cp.length - 1].x - p.x) > 1 || Math.abs(cp[cp.length - 1].y - p.y) > 1)) {
+                    //Lacking raster resolution
+                    u -= uinc;
+                    uinc = uinc / 2;
+                    //console.log("uinc " + uinc);
+                    if (uinc < 0.0000152587890625) {
+                        uinc = 0.0078125;
+                        cp.push(p);
+                    }
+                } else {
+                    cp.push(p);
+                }
+
+            }
+            return cp;
+        }
+
+        class Automata {
+            constructor(rows, columns) {
+                this.rows = rows;
+                this.columns = columns;
+                this.max_growth_dist = 0;
+                this.empty_cells = 0
+                let Array2D = (row, col) => [...Array(row)].map(x => Array(col).fill(0));
+                this.grid = Array2D(rows, columns);
+                //this.edgegrid = Array2D(rows, columns);
+                this.seedpoints = [];
+                this.colorArray = [];
+                this.cornertable = [];
+                this.cornergrid = Array2D(rows, columns);
+                this.maskgrid = Array2D(rows, columns);
+                this.borderdistgrid = Array2D(rows, columns);
+                this.lockedgrid = Array2D(rows, columns);
+            }
+
+            fillmask(paths, scale) {
+                const crosslookup = [[-1, 0], [1, 0], [0, 1], [0, -1]];
+
+                var allpts = []
+                var minx, miny, maxx, maxy
+                for (let p of paths) {
+                    var pts = plotpath(p, scale);
+                    pts.forEach((pt) => {
+                        allpts.push(pt);
+                        if (isNaN(minx) || pt.x < minx) minx = pt.x;
+                        if (isNaN(miny) || pt.y < miny) miny = pt.y;
+                        if (isNaN(maxx) || pt.x > maxx) maxx = pt.x;
+                        if (isNaN(maxy) || pt.y > maxy) maxy = pt.y;
+                    });
+
+                }
+                // console.log("V", minx, maxx, miny, maxy);
+                allpts.forEach((p) => {
+                    // console.log(this.borderdistgrid.length, this.borderdistgrid[0].length,p.x,p.y)
+                    this.borderdistgrid[p.y][p.x] = { rx: p.rx + 0.5, ry: p.ry + 0.5 };
+                    this.maskgrid[p.y][p.x] = 1;
+
+                });
+
+                var regnum = 3;
+
+                var grown;
+                do {
+                    var outside = true;
+                    grown = false;
+                    for (var i = -1; i < this.rows + 1; i++) {
+                        for (var j = -1; j < this.columns + 1; j++) {
+                            if (i < 0 || j < 0 || i > this.rows - 1 || j > this.columns - 1 || (this.maskgrid[i][j] > 1 && this.maskgrid[i][j] < regnum)) {
+                                var togrow = [{ r: i, c: j }];
+                                do {
+                                    var p = togrow.pop();
+                                    crosslookup.forEach((c) => {
+                                        var ii = p.r + c[0];
+                                        var jj = p.c + c[1];
+                                        if (ii >= 0 && jj >= 0 && ii < this.rows && jj < this.columns) {
+
+                                            if (!this.maskgrid[ii][jj]) {
+                                                togrow.push({ r: ii, c: jj });
+                                            }
+                                            if (this.maskgrid[ii][jj] < 2) {
+                                                if (p.r > 0 && p.c > 0 && p.r < this.rows && p.c < this.columns) {
+                                                    if (this.maskgrid[p.r][p.c] > 1 && this.maskgrid[p.r][p.c] < regnum && this.maskgrid[p.r][p.c] % 2) {
+                                                        this.outside = false;
+                                                    }
+                                                } else {
+                                                    this.outside = true;
+                                                }
+                                                this.maskgrid[ii][jj] = regnum;
+                                                grown = true;
+                                            }
+                                        }
+                                    });
+                                } while (togrow.length);
+
+                            }
+                        }
+
+                    }
+                    regnum += outside ? 1 : 2;
+                } while (grown)
+
+                for (var i = 0; i < this.rows; i++) {
+                    for (var j = 0; j < this.columns; j++) {
+                        this.maskgrid[i][j] = this.maskgrid[i][j] % 2;
+                    }
+                }
+                allpts.forEach((p) => {
+                    this.maskgrid[p.y][p.x] = 1;
+                });
+            }
+            gridseed(gsize, randlen) {
+                this.seedpoints = []
+                var val = 1;
+                for (var i = gsize / 2; i <= this.rows - gsize / 2; i += gsize) {
+                    for (var j = gsize / 2; j <= this.columns - gsize / 2; j += gsize) {
+                        var row = Math.floor(i + uniform(-(gsize / 2) * randlen, (gsize / 2) * randlen)) % this.rows;
+                        var col = Math.floor(j + uniform(-(gsize / 2) * randlen, (gsize / 2) * randlen)) % this.columns;
+                        if (row < 0) row += this.rows;
+                        if (col < 0) col += this.columns;
+
+                        if (!this.maskgrid[row][col]) {
+                            this.grid[row][col] = val;
+                            this.seedpoints.push({ row: row, col: col, val: val });
+                            val = val + 1;
+                        }
+
+                    }
+                }
+                $("piececount").innerHTML = val - 1;
+            }
+            get_empty_cells() {
+                for (var i = 0; i < this.rows; i++) {
+                    for (var j = 0; j < this.columns; j++) {
+                        if (!this.grid[i][j] && !this.maskgrid[i][j]) {
+                            this.empty_cells++;
+                        }
+                    }
+                }
+            }
+
+            get_locked_cells() {
+                var locked = 0;
+                for (var i = 0; i < this.rows; i++) {
+                    for (var j = 0; j < this.columns; j++) {
+                        if (this.lockedgrid[i][j]) {
+                            locked++;
+                        }
+                    }
+                }
+                return locked;
+            }
+
+
+            step(context, radius) {
+                var growth = []
+                var ii = Math.floor(uniform(0, this.rows));
+                var ij = Math.floor(uniform(0, this.columns));
+                var fi = ii + this.rows;
+                var fj = ij + this.columns;
+                var reverse = rbool();
+
+                this.max_growth_dist = radius;
+
+                ii = 0;
+                ij = 0;
+                fi = this.rows;
+                fj = this.columns;
+
+                var evaluated = 0;
+                for (var i = ii; i < fi; i++) {
+                    for (var j = ij; j < fj; j++) {
+                        var ti = i % this.rows;
+                        var tj = j % this.columns;
+                        if (this.grid[ti][tj] > 0 && !this.lockedgrid[ti][tj]) {
+                            evaluated++;
+                            this.grow(ti, tj, growth, context);
+                        }
+                    }
+                }
+
+                // }
+                growth.forEach((grow) => {
+                    this.grid[grow.row][grow.col] = grow.val;
+                    var neigh = this.neighbor_coords(grow.row, grow.col, false).c;
+                });
+                // if (!prefill) {
+                //     this.edgefind(context);
+                // }
+                return growth.length
+            }
+
+            mindistandclosestpoint2path(corner) {
+
+                var neighbor_coords = this.neighbor_coords(corner.row, corner.col, false).c;
+                neighbor_coords.push(corner);
+                let mind = 1e12
+                let cp = null;
+                let d = 0;
+                neighbor_coords.forEach((nc) => {
+                    let bg = this.borderdistgrid[nc.row][nc.col];
+                    if (bg) {
+                        // var len = bg.path.getTotalLength();
+                        // for (let u = bg.u - 0.01; u <= bg.u + 0.01; u += 0.005) {
+                        //     let p = bg.path.getPointAtLength(u * len);
+                        d = Math.hypot(bg.rx - corner.col, bg.ry - corner.row)
+                        if (d < mind) {
+                            mind = d;
+                            cp = { x: bg.rx, y: bg.ry };
+                        }
+                        // }
+                    }
+                });
+
+                return { d: mind, cp: cp };
+            }
+
+
+            neighbor_coords(row, col, calc_weights) {
+                var coords = [];
+                var weight = 0;
+                for (var i = -1; i < 2; i++) {
+                    for (var j = -1; j < 2; j++) {
+                        var pr = row + i;
+                        var pc = col + j;
+                        if ((i || j) && pr >= 0 && pc >= 0 && pr < this.rows && pc < this.columns) {
+                            coords.push({ row: pr, col: pc });
+                            if (calc_weights && (Math.abs(this.grid[pr][pc]) == Math.abs(this.grid[row][col]))) {
+                                var w = i + j * 3 + 4;
+                                w = w > 4 ? w - 1 : w;
+                                weight += (1 << w);
+                            }
+                        }
+                    }
+                }
+                return { c: coords, w: weight };
+            }
+
+            findcorners(customborder) {
+                const lookup = [[[1, 1], [0, 1], [1, 0]], [[-1, -1], [0, -1], [-1, 0]], [[1, -1], [0, -1], [1, 0]], [[-1, 1], [0, 1], [-1, 0]]];
+                var corners = [];
+                let Array2D = (row, col) => [...Array(row)].map(x => Array(col).fill(0));
+                this.cornergrid = Array2D(this.rows + 1, this.columns + 1);
+                for (var i = -1; i < this.rows + 1; i++) {
+                    for (var j = -1; j < this.columns + 1; j++) {
+                        var corner_cand = [];
+
+                        lookup.forEach((le) => {
+                            if (i < 0 || j < 0 || j >= this.columns || i >= this.rows) {
+                                var distinct = [0];
+                            } else {
+                                var distinct = [this.grid[i][j]];
+
+                            }
+                            le.forEach((c) => {
+                                var ii = i + c[0];
+                                var jj = j + c[1];
+                                if (ii < 0 || jj < 0 || ii >= this.rows || jj >= this.columns) {
+                                    if (!distinct.includes(0)) {
+                                        distinct.push(0);
+                                    }
+                                } else {
+                                    var val = this.grid[ii][jj];
+                                    if (!distinct.includes(val)) {
+                                        distinct.push(val);
+                                    }
+                                }
+                            });
+                            if (distinct.length > 2) {
+                                var c = le[0];
+                                var cr = c[0] > 0 ? c[0] : 0;
+                                var cc = c[1] > 0 ? c[1] : 0;
+                                var onborder = distinct.includes(0);
+                                corner_cand.push({ row: i + cr, col: j + cc, onborder: onborder });
+                            }
+                        });
+
+
+                        corner_cand.forEach((cc) => {
+                            if (!this.cornergrid[cc.row][cc.col]) {
+                                this.cornergrid[cc.row][cc.col] = 1;
+                                corners.push(cc);
+                            }
+                        });
+
+                    }
+                }
+                this.cornertable = [];
+                if (customborder.paths) {
+                    corners.forEach((c) => {
+                        if (c.onborder) {
+                            var mind = 2e9;
+                            var newp = { x: c.col, y: c.row };
+                            for (let p of customborder.paths) {
+                                var dcp = this.mindistandclosestpoint2path(c);
+                                if (dcp && dcp.d < mind) {
+                                    mind = dcp.d;
+                                    newp = dcp.cp;
+                                }
+                            }
+                            this.cornertable.push({ row: c.row, col: c.col, x: newp.x, y: newp.y });
+                        }
+                    });
+                }
+                return corners;
+            }
+
+
+            grow(row, col, growth, context) {
+
+                var neigh_coord = this.neighbor_coords(row, col, false).c;
+                var grown = [];
+                var currentcellval = this.grid[row][col];
+                var seed = this.seedpoints.find((sp) => sp.val == currentcellval);
+
+                var growable = false;
+                //We have enough neighbors, explore them
+                neigh_coord.forEach((neighbor) => {
+                    var neighborval = this.grid[neighbor.row][neighbor.col];
+
+                    if (!this.maskgrid[neighbor.row][neighbor.col]) {
+                        if (!neighborval) { //neighbor is empty 
+                            growable = true;
+                            var dist2seed = Math.sqrt((neighbor.row - seed.row) ** 2 + (neighbor.col - seed.col) ** 2);
+                            if (dist2seed < this.max_growth_dist) {
+                                //Just eat it  
+                                growth.push({ row: neighbor.row, col: neighbor.col, val: currentcellval });
+                                grown.push({ row: neighbor.row, col: neighbor.col });
+                            }
+
+                        }
+                    }
+                });
+
+                if (!growable) {
+                    this.lockedgrid[row][col] = 1;
+                }
+
+
+                // //TODO: If your only growth is a corner, don't grow DONE
+                if (grown.length == 1 && grown[0].row != row && grown[0].col != col) {
+                    grown = [];
+                    growth.pop();
+                }
+                grown.forEach((grow) => {
+                    this.grid[grow.row][grow.col] = -this.grid[row][col];
+                });
+
+            }
+            paintcorners(context, corners, size, color) {
+                var pixelsize = parseInt($("pixelscell").value);
+                corners.forEach((c) => {
+                    context.fillStyle = color;
+                    context.fillRect((c.col * pixelsize) - size / 2, (c.row * pixelsize) - size / 2, size, size);
+                });
+            }
+            findedgestep(edge, row, col, pdir, corner, context) {
+                var pixelsize = parseInt($("pixelscell").value);
+                if (row < 0 || col < 0 || row >= this.rows || col >= this.columns) {
+                    return;
+                }
+                if (!corner && this.cornergrid[row][col] == 1) {
+                    return;
+                }
+                if (pdir.includes("E")) {
+                    //move east
+                    var ii = row - 1;
+                    var jj = col;
+                    var v1 = this.grid[row][col];
+                    var v2 = (ii < 0 || jj < 0) ? 0 : this.grid[ii][jj];
+                    if (v1 && v2 && (v1 != v2)) {
+                        if (this.cornergrid[row][col + 1] < 2) {
+                            if (!this.cornergrid[row][col + 1])
+                                this.cornergrid[row][col + 1] = 2;
+                            edge.push({ row: row, col: col + 1 });
+                            context.strokeStyle = "black";
+                            context.beginPath();
+                            context.moveTo(col * pixelsize, row * pixelsize);
+                            context.lineTo((col + 1) * pixelsize, (row) * pixelsize);
+                            context.stroke();
+                            this.findedgestep(edge, row, col + 1, "NSE", false, context);
+                        }
+                        return; //only one movement!
+
+                    }
+
+                }
+                if (pdir.includes("W")) {
+                    //move west
+                    var ii = row - 1;
+                    var jj = col - 1;
+                    var v1 = (col - 1) < 0 ? 0 : this.grid[row][col - 1];
+                    var v2 = (ii < 0 || jj < 0) ? 0 : this.grid[ii][jj];
+                    if (v1 && v2 && (v1 != v2)) {
+                        if (this.cornergrid[row][col - 1] < 2) {
+                            if (!this.cornergrid[row][col - 1])
+                                this.cornergrid[row][col - 1] = 2;
+                            edge.push({ row: row, col: col - 1 });
+                            context.strokeStyle = "black";
+                            context.beginPath();
+                            context.moveTo(col * pixelsize, row * pixelsize);
+                            context.lineTo((col - 1) * pixelsize, (row) * pixelsize);
+                            context.stroke();
+                            this.findedgestep(edge, row, col - 1, "NSW", false, context);
+                        }
+                        return; //only one movement!
+
+                    }
+
+                }
+                if (pdir.includes("N")) {
+                    //move north
+                    var ii = row - 1;
+                    var jj = col - 1;
+                    var v1 = (row - 1) < 0 ? 0 : this.grid[row - 1][col];
+                    var v2 = (ii < 0 || jj < 0) ? 0 : this.grid[ii][jj];
+                    if (v1 && v2 && (v1 != v2)) {
+                        if (this.cornergrid[row - 1][col] < 2) {
+                            if (!this.cornergrid[row - 1][col])
+                                this.cornergrid[row - 1][col] = 2;
+                            edge.push({ row: row - 1, col: col });
+                            context.strokeStyle = "black";
+                            context.beginPath();
+                            context.moveTo(col * pixelsize, row * pixelsize);
+                            context.lineTo(col * pixelsize, (row - 1) * pixelsize);
+                            context.stroke();
+                            this.findedgestep(edge, row - 1, col, "NEW", false, context);
+                        }
+                        return; //only one movement!
+
+                    }
+
+                }
+                if (pdir.includes("S")) {
+                    //move south
+                    var ii = row;
+                    var jj = col - 1;
+                    var v1 = this.grid[row][col];
+                    var v2 = (ii < 0 || jj < 0) ? 0 : this.grid[ii][jj];
+                    if (v1 && v2 && (v1 != v2)) {
+                        if (this.cornergrid[row + 1][col] < 2) {
+                            if (!this.cornergrid[row + 1][col])
+                                this.cornergrid[row + 1][col] = 2;
+                            edge.push({ row: row + 1, col: col });
+                            context.strokeStyle = "black";
+
+                            context.beginPath();
+                            context.moveTo(col * pixelsize, row * pixelsize);
+                            context.lineTo(col * pixelsize, (row + 1) * pixelsize);
+                            context.stroke();
+                            this.findedgestep(edge, row + 1, col, "SEW", false, context);
+                        }
+                        return; //only one movement!
+                    }
+
+                }
+
+            }
+            findedges(corners, context) {
+                var edgepaths = [];
+                var shortedgepaths = [];
+                const directions = ["N", "S", "E", "W"];
+                var pixelsize = parseInt($("pixelscell").value);
+                corners.forEach((c) => {
+
+                    // var size = 8;
+                    // context.fillStyle = c.customborder ? "red" : "blue";
+                    // context.fillRect((c.col * pixelsize) - size / 2, (c.row * pixelsize) - size / 2, size, size);
+                    // if (!c.customborder) {
+                    directions.forEach((d) => {
+                        var edge = [c];
+                        this.findedgestep(edge, c.row, c.col, d, true, context);
+
+                        if (edge.length > 1) {
+                            if (edge.length == 2) {
+                                var sameedge = shortedgepaths.filter(sep => (
+                                    (sep[0].row == edge[0].row && sep[0].col == edge[0].col && sep[1].row == edge[1].row && sep[1].col == edge[1].col) ||
+                                    (sep[1].row == edge[0].row && sep[1].col == edge[0].col && sep[0].row == edge[1].row && sep[0].col == edge[1].col)
+                                ));
+                                if (!sameedge.length) {
+                                    edgepaths.push(edge);
+                                    shortedgepaths.push(edge);
+                                }
+                            } else {
+                                edgepaths.push(edge);
+                            }
+                        }
+                        //.log("Edged");
+                    });
+                    // }
+                });
+                return edgepaths;
+            }
+            paint(context, palette) {
+                var pixelsize = parseInt($("pixelscell").value);
+                context.clearRect(0, 0, $("automata").width, $("automata").height);
+                context.font = "12px Arial";
+                context.textAlign = "center";
+
+                for (var i = 0; i < this.rows; i++) {
+                    for (var j = 0; j < this.columns; j++) {
+
+                        if (this.grid[i][j] < 0) {
+                            console.log("WTF");
+                        }
+
+                        if (this.grid[i][j]) {
+                            context.fillStyle = this.colorArray[Math.abs(this.grid[i][j] - 1) % this.colorArray.length];
+                            context.fillRect(j * pixelsize, i * pixelsize, pixelsize, pixelsize);
+
+                        }
+                        // if (this.cornergrid[i][j]) {
+                        //     context.fillStyle = this.colorArray[Math.abs(this.grid[i][j] - 1) % this.colorArray.length];
+                        //     context.strokeStyle = "red"
+                        //     context.strokeRect(j * pixelsize, i * pixelsize, pixelsize, pixelsize);
+
+                        // }
+                    }
+                }
+            }
+
+            paintmask(context, paths) {
+                var pixelsize = parseInt($("pixelscell").value);
+                context.clearRect(0, 0, $("automata").width, $("automata").height);
+                context.font = "12px Arial";
+                context.textAlign = "center";
+
+                for (var i = 0; i < this.rows; i++) {
+                    for (var j = 0; j < this.columns; j++) {
+
+                        if (this.maskgrid[i][j] < 0) {
+                            console.log("WTF");
+                        }
+
+                        if (this.maskgrid[i][j] % 2) {
+                            context.fillStyle = "red";
+
+                        } else {
+                            context.fillStyle = "blue";
+                        }
+
+                        context.fillRect(j * pixelsize, i * pixelsize, pixelsize, pixelsize);
+
+
+
+                    }
+                }
+                for (let p of paths) {
+                    var p2d = new Path2D(p.getAttribute("d"));
+                    context.stroke(p2d);
+                }
+            }
+        }
+        var canvas;
+        var automata;
+        var palette;
+        var svgstr;
+        var svgstrsave;
+        var context;
+        var customborder = {};
+        // save function pieced together from here: https://stackoverflow.com/questions/19327749/javascript-blob-filename-without-link
+        function save(filename, data) {
+            var blob = new Blob([data], { type: "image/svg+xml" });
+            if (window.navigator.msSaveOrOpenBlob) {
+                window.navigator.msSaveBlob(blob, filename);
+            }
+            else {
+                var elem = window.document.createElement('a');
+                elem.href = window.URL.createObjectURL(blob);
+                elem.download = filename;
+                document.body.appendChild(elem);
+                elem.click();
+                document.body.removeChild(elem);
+            }
+        }
+
+        function savesvg() {
+            window.alert("DISCLAIMER: This generator has no mechanism implemented to check and fix line intersections at this moment. Please check the output and fix any issues manually before cutting.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.");
+
+            save("jigsaw.svg", svgstrsave);
+        }
+
+        // ===================== WHIMSY PIECES =====================
+        // A whimsy is a closed outline placed inside the puzzle. It is added to the
+        // border paths as a "hole": the Voronoi pieces grow around it, their edges snap
+        // to its outline, and the outline itself is cut as-is, so the inside becomes
+        // one shaped piece.
+        var whimsies = [];      // {name, d, w0, h0, x, y, width, rot, solidity}
+        var selectedWhimsy = 0;
+        var lastGenOK = false;
+
+        const BUILTIN_WHIMSIES = {
+            butterfly: "M 50 14 C 53 14 54 17 53 21 C 60 10 80 0 92 6 C 102 12 98 32 86 40 C 78 45 64 44 56 44 C 70 48 84 58 80 70 C 76 80 62 80 56 66 C 55 72 53 80 50 82 C 47 80 45 72 44 66 C 38 80 24 80 20 70 C 16 58 30 48 44 44 C 36 44 22 45 14 40 C 2 32 -2 12 8 6 C 20 0 40 10 47 21 C 46 17 47 14 50 14 Z",
+            star: (function () {
+                var s = "", n = 5;
+                for (var i = 0; i < 2 * n; i++) {
+                    var r = (i % 2) ? 21 : 50, a = -Math.PI / 2 + i * Math.PI / n;
+                    s += (i ? " L " : "M ") + (50 + r * Math.cos(a)).toFixed(2) + " " + (50 + r * Math.sin(a)).toFixed(2);
+                }
+                return s + " Z";
+            })(),
+            heart: "M 50 30 C 50 10 90 4 96 30 C 100 52 70 70 50 92 C 30 70 0 52 4 30 C 10 4 50 10 50 30 Z",
+            fish: "M 4 50 C 20 20 60 16 78 42 L 96 26 C 92 40 92 60 96 74 L 78 58 C 60 84 20 80 4 50 Z"
+        };
+
+        function tmpSvg() {
+            var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            s.setAttribute("style", "position:absolute;left:-9999px;top:-9999px");
+            document.body.appendChild(s);
+            return s;
+        }
+
+        // Turn any SVG text into one normalised outline (largest closed sub-path).
+        function whimsyFromSvgText(text) {
+            var doc = new DOMParser().parseFromString(text, "image/svg+xml");
+            var src = doc.getElementsByTagName("svg")[0];
+            if (!src) throw "Not an SVG file";
+            src = document.importNode(src, true);
+            src.setAttribute("style", "position:absolute;left:-9999px;top:-9999px");
+            document.body.appendChild(src);
+            flatten(src, false, true);
+            var holder = tmpSvg();
+            var best = null, bestArea = -1;
+            for (let p of src.getElementsByTagName("path")) {
+                var d = p.getAttribute("d") || "";
+                d.split(/(?=M)/).forEach((sub) => {
+                    sub = sub.trim();
+                    if (!sub) return;
+                    var tp = document.createElementNS(holder.namespaceURI, "path");
+                    tp.setAttribute("d", sub);
+                    holder.appendChild(tp);
+                    var bb = tp.getBBox();
+                    if (bb.width * bb.height > bestArea) { bestArea = bb.width * bb.height; best = sub; }
+                });
+            }
+            document.body.removeChild(src);
+            document.body.removeChild(holder);
+            if (!best) throw "No closed shape found in the SVG";
+            return normaliseWhimsy(best);
+        }
+
+        function normaliseWhimsy(d) {
+            if (!/[Zz]\s*$/.test(d)) d += " Z";
+            var holder = tmpSvg();
+            var g = document.createElementNS(holder.namespaceURI, "g");
+            var p = document.createElementNS(holder.namespaceURI, "path");
+            p.setAttribute("d", d);
+            g.appendChild(p);
+            holder.appendChild(g);
+            var bb = p.getBBox();
+            g.setAttribute("transform", "translate(" + (-bb.x) + "," + (-bb.y) + ")");
+            flatten(holder, false, true);
+            p = holder.getElementsByTagName("path")[0];
+            var res = { d: p.getAttribute("d"), w0: bb.width, h0: bb.height, solidity: solidity(p) };
+            document.body.removeChild(holder);
+            return res;
+        }
+
+        // area / convex-hull area. Close to 1 = convex = will fall out of the puzzle.
+        function solidity(path) {
+            var len = path.getTotalLength(), pts = [];
+            for (var i = 0; i < 400; i++) { var q = path.getPointAtLength(len * i / 400); pts.push([q.x, q.y]); }
+            var area = 0;
+            for (var i = 0; i < pts.length; i++) { var a = pts[i], b = pts[(i + 1) % pts.length]; area += a[0] * b[1] - b[0] * a[1]; }
+            area = Math.abs(area / 2);
+            var s = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+            var cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+            var lo = [], hi = [];
+            for (var q of s) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+            for (var q of s.reverse()) { while (hi.length >= 2 && cross(hi[hi.length - 2], hi[hi.length - 1], q) <= 0) hi.pop(); hi.push(q); }
+            var hull = lo.slice(0, -1).concat(hi.slice(0, -1)), ha = 0;
+            for (var i = 0; i < hull.length; i++) { var a = hull[i], b = hull[(i + 1) % hull.length]; ha += a[0] * b[1] - b[0] * a[1]; }
+            return area / Math.abs(ha / 2);
+        }
+
+        function lockLabel(s) {
+            if (s < 0.85) return '<span style="color:#1a7f37">locks well</span>';
+            if (s < 0.92) return '<span style="color:#b07d00">locks weakly</span>';
+            return '<span style="color:#c62828">will fall out</span>';
+        }
+
+        function addWhimsy(name, shape) {
+            whimsies.push({ name: name, d: shape.d, w0: shape.w0, h0: shape.h0, solidity: shape.solidity,
+                x: null, y: null, width: 40, rot: 0 });
+            selectedWhimsy = whimsies.length - 1;
+            renderWhimsyList();
+        }
+
+        function addBuiltinWhimsy() {
+            var key = $("whimsyshape").value;
+            if (key == "file") { $("whimsyfile").click(); return; }
+            addWhimsy($("whimsyshape").selectedOptions[0].text, normaliseWhimsy(BUILTIN_WHIMSIES[key]));
+        }
+
+        function loadWhimsyFile() {
+            var f = $("whimsyfile").files[0];
+            if (!f) return;
+            var fr = new FileReader();
+            fr.onload = function () {
+                try { addWhimsy(f.name.replace(/\.svg$/i, ""), whimsyFromSvgText(fr.result)); }
+                catch (e) { alert("Could not use this SVG: " + e); }
+                $("whimsyfile").value = "";
+            };
+            fr.readAsText(f);
+        }
+
+        function renderWhimsyList() {
+            var html = "";
+            whimsies.forEach((w, i) => {
+                var num = (k, v, step) => '<input type="number" step="' + step + '" style="width:4.5em" value="' + (v === null ? "" : +(+v).toFixed(1)) +
+                    '" placeholder="auto" onchange="whimsies[' + i + '].' + k + '=(this.value===\'\'?null:parseFloat(this.value))">';
+                html += '<tr><td><label><input type="radio" name="wsel" ' + (i == selectedWhimsy ? "checked" : "") +
+                    ' onchange="selectedWhimsy=' + i + '"> ' + w.name + '</label></td>' +
+                    '<td>X ' + num("x", w.x, 1) + ' Y ' + num("y", w.y, 1) + ' mm</td>' +
+                    '<td>Width ' + num("width", w.width, 1) + ' mm</td>' +
+                    '<td>Rot ' + num("rot", w.rot, 5) + '°</td>' +
+                    '<td>' + lockLabel(w.solidity) + '</td>' +
+                    '<td><button onclick="whimsies.splice(' + i + ',1);selectedWhimsy=0;renderWhimsyList()">Remove</button></td></tr>';
+            });
+            $("whimsylist").innerHTML = html;
+            $("whimsyhint").style.display = whimsies.length ? "" : "none";
+        }
+
+        // Called from generate(), after the border has been normalised into pgroup.
+        function placeWhimsies(pgroup) {
+            var warnings = [];
+            var idx = 0;
+            var ns = pgroup.namespaceURI;
+            var boxes = [];
+            whimsies.forEach((w) => {
+                if (w.x === null) w.x = customborder.width / 2;
+                if (w.y === null) w.y = customborder.height / 2;
+                var s = w.width / w.w0;
+                var g = document.createElementNS(ns, "g");
+                g.setAttribute("transform", "translate(" + w.x + "," + w.y + ") rotate(" + w.rot + ") scale(" + s + ") translate(" + (-w.w0 / 2) + "," + (-w.h0 / 2) + ")");
+                var p = document.createElementNS(ns, "path");
+                p.setAttribute("d", w.d);
+                p.setAttribute("stroke", "black");
+                p.setAttribute("stroke-width", 1);
+                p.setAttribute("fill", "none");
+                p.setAttribute("id", "whimsy-" + (idx++));
+                g.appendChild(p);
+                pgroup.appendChild(g);
+            });
+            flatten($("svgcontainer"), false, true);
+            var cs = parseFloat($("cell_scale").value);
+            var wpaths = [...pgroup.getElementsByTagName("path")].filter(p => /^whimsy-/.test(p.id || ""));
+            wpaths.forEach((p, i) => {
+                var bb = p.getBBox(), w = whimsies[i];
+                boxes.push(bb);
+                if (bb.x < 2 * cs || bb.y < 2 * cs || bb.x + bb.width > customborder.width - 2 * cs || bb.y + bb.height > customborder.height - 2 * cs)
+                    warnings.push(w.name + " ligger for nær kanten (eller utenfor) puslespillet.");
+                if (Math.min(bb.width, bb.height) < 4 * cs)
+                    warnings.push(w.name + " er for liten. Gjør den større, eller gjør brikkene mindre.");
+                if (w.solidity >= 0.92)
+                    warnings.push(w.name + " har nesten ingen innsnevringer og vil falle ut av puslespillet.");
+            });
+            for (var i = 0; i < boxes.length; i++) for (var j = i + 1; j < boxes.length; j++) {
+                var a = boxes[i], b = boxes[j], m = 2 * cs;
+                if (a.x < b.x + b.width + m && b.x < a.x + a.width + m && a.y < b.y + b.height + m && b.y < a.y + a.height + m)
+                    warnings.push(whimsies[i].name + " og " + whimsies[j].name + " ligger for nær hverandre eller overlapper.");
+            }
+            renderWhimsyList();
+            return warnings;
+        }
+
+        function rectBorderSvg(w, h) {
+            var d = new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h +
+                '"><path d="M 0 0 L ' + w + ' 0 L ' + w + ' ' + h + ' L 0 ' + h + ' Z"/></svg>', "image/svg+xml");
+            return d.getElementsByTagName("svg")[0];
+        }
+
+        function previewClick(evt) {
+            if (!whimsies.length || !lastGenOK || !whimsies[selectedWhimsy]) return;
+            var svg = $("svgcontainer");
+            var pt = svg.createSVGPoint();
+            pt.x = evt.clientX; pt.y = evt.clientY;
+            var p = pt.matrixTransform(svg.getScreenCTM().inverse());
+            var cs = parseFloat($("cell_scale").value);
+            whimsies[selectedWhimsy].x = p.x - cs / 2;
+            whimsies[selectedWhimsy].y = p.y - cs / 2;
+            renderWhimsyList();
+            generate();
+        }
+        // ===================== END WHIMSY PIECES =====================
+
+        function generate() {
+            update_seed();
+            tab_rel_size = parseFloat($("tabrelsize").value) / 200.0;
+            tab_jitter = parseFloat($("tabjitter").value) / 100.0;
+            tab_abs_size = parseFloat($("abstab").value);
+            tab_min_size = parseFloat($("mintab").value);
+            tab_max_size = parseFloat($("maxtab").value);
+
+            seed = parseInt($("_seed").value);
+            var pixelsize = parseInt($("pixelscell").value);
+            var rows = parseInt($("nrows").value);
+            var cols = parseInt($("ncols").value);
+            var gsize = parseInt($("gsize").value);
+            var gnoise = parseFloat($("gnoise").value);
+            var cell_scale = parseFloat($("cell_scale").value)
+
+            // Whimsies need a border path to be holes in, so rectangular puzzles get a synthetic rectangle border.
+            var synthRect = false;
+            var whimsyWarnings = [];
+            if (!customborder.svgdata && whimsies.length) {
+                customborder.svgdata = rectBorderSvg(cols * cell_scale, rows * cell_scale);
+                synthRect = true;
+            }
+
+            if (customborder.svgdata) {
+                while ($("svgcontainer").firstChild) {
+                    $("svgcontainer").removeChild($("svgcontainer").firstChild);
+                }
+
+                var svgdata = document.body.appendChild(customborder.svgdata);
+                //Initial flattening to get rid of transforms
+                flatten(svgdata, false, true);
+
+                var paths_svg = svgdata.getElementsByTagName("path");
+                var pgroup = document.createElementNS($("svgcontainer").namespaceURI, "g");
+                //When all transforms have been applied for all paths, the remaining one is the viewbox/viewport thing
+                var vt = paths_svg[0].getCTM();
+                $("svgcontainer").append(pgroup);
+
+                for (let p of paths_svg) {
+                    var newpath = document.createElementNS($("svgcontainer").namespaceURI, "path")
+                    newpath.setAttribute("d", p.getAttribute('d'));
+                    newpath.setAttribute("stroke", "black");
+                    newpath.setAttribute("stroke-width", 1);
+                    newpath.setAttribute("fill", "none");
+                    pgroup.appendChild(newpath);
+                }
+
+                document.body.removeChild(svgdata);
+                //De-viewboxfy
+                if ($("abv").checked) {
+                    pgroup.setAttribute("transform", "matrix(" + vt.a + "," + vt.b + "," + vt.c + "," + vt.d + "," + vt.e + "," + vt.f + ")");
+                    flatten($("svgcontainer"), false, true);
+                }
+                //Scale
+                pgroup.setAttribute("transform", "scale(" + parseFloat($("cbsf").value) + ")");
+                flatten($("svgcontainer"), false, true);
+                //To left corner
+                pgroup.setAttribute("transform", "translate(" + (-($("svgcontainer").getBBox().x)) + "," + (-($("svgcontainer").getBBox().y)) + ")");
+                flatten($("svgcontainer"), false, true);
+                //Now the customborder is normalized
+
+                customborder.width = ($("svgcontainer").getBBox().width + $("svgcontainer").getBBox().x);// * pixelsize;
+                customborder.height = ($("svgcontainer").getBBox().height + $("svgcontainer").getBBox().y);// * pixelsize;
+
+                if (whimsies.length) {
+                    whimsyWarnings = placeWhimsies(pgroup);
+                }
+
+                customborder.paths = pgroup.getElementsByTagName("path");
+
+                cols = Math.ceil(customborder.width / cell_scale) + 1;
+                rows = Math.ceil(customborder.height / cell_scale) + 1;
+
+            }
+
+            if (rows * cols > 1e6) {
+                var extra_text = "\nHint: Try reducing the number of rows and columns until rows times columns is less than 1 million.\n";
+                if (customborder.svgdata) {
+                    var max_scale = parseFloat($("cbsf").value) / Math.sqrt((rows * cols) / 1e6);
+                    extra_text = "\nHint: Try reducing the custom border scale factor. The maximum value recommended for your custom border is " + max_scale.toFixed(2) + ".\n";
+                }
+                var confirmed = window.confirm("You are going to generate a " + Math.round(rows) + " x " + Math.round(cols) + " cell jigsaw. This is very large, and " +
+                    "it may take a very long time to generate or even lock your browser. Just close it if this happens." + extra_text + "Do you want to continue generating the jigsaw?");
+                if (!confirmed) {
+                    return;
+                }
+            }
+
+            automata = new Automata(rows, cols);
+
+            if (customborder.paths) {
+                automata.fillmask(customborder.paths, cell_scale);
+                pgroup.setAttribute("transform", "translate(" + (cell_scale / 2) + "," + (cell_scale / 2) + ")");
+                flatten($("svgcontainer"), false, true);
+            }
+
+
+
+            canvas = $("automata");
+            canvas.setAttribute("width", cols * pixelsize + 5);
+            canvas.setAttribute("height", rows * pixelsize + 5);// * 2);
+
+
+            if (canvas.getContext) {
+                context = canvas.getContext('2d');
+
+
+                // if (customborder.paths) {
+                //     automata.paintmask(context,customborder.paths);
+                // }
+                automata.gridseed(gsize, gnoise);
+                palette = ImageTracer.generatepalette(automata.seedpoints.length + 1);
+                Shuffle(palette);
+                palette.forEach((c) => {
+                    automata.colorArray.push("#" + c.r.toString(16).toUpperCase().padStart(2, "0") + c.g.toString(16).toUpperCase().padStart(2, "0") + c.b.toString(16).toUpperCase().padStart(2, "0"));
+                });
+
+                automata.paint(context, palette);
+                var growncells = 0;
+                radius = 0;
+                automata.get_empty_cells();
+                var stale = 0;
+                var prevgrowth = 0;
+                do {
+                    growncells = automata.step(context, radius);
+                    automata.empty_cells -= growncells;
+                    radius = radius + 1;
+                    if (growncells == 0) stale++;
+                    else stale = 0;
+                } while (automata.empty_cells && stale < 10);
+                paintoutput();
+                window.lastShapes = customborder.paths ? [...customborder.paths].map(p => ({ d: p.getAttribute("d"), whimsy: /^whimsy-/.test(p.id || "") })) : null;
+                if (whimsies.length) {
+                    $("piececount").innerHTML = (parseInt($("piececount").innerHTML) + whimsies.length) + " (including " + whimsies.length + " shaped)";
+                }
+            }
+            if (synthRect) {
+                // keep the rectangle-mode state as the user left it
+                customborder = {};
+            }
+            lastGenOK = true;
+            $("whimsywarn").innerHTML = whimsyWarnings.map(w => "⚠ " + w).join("<br>");
+            updatedimensions(1);
+
+        }
+
+        function paintoutput() {
+            var rows = automata.rows;
+            var cols = automata.columns;
+            var pixelsize = parseInt($("pixelscell").value);
+            var cellscale = parseFloat($("cell_scale").value);
+            var minedgelen = parseFloat($("minedge").value);
+            canvas = $("automata");
+            canvas.setAttribute("width", cols * pixelsize + 5);
+            canvas.setAttribute("height", rows * pixelsize + 5);// * 2);
+            $("svgcontainer").setAttribute("width", cols * cellscale);
+            $("svgcontainer").setAttribute("height", rows * cellscale);
+            // console.log("Painted");
+            var corners = automata.findcorners(customborder);
+            // console.log("Cornered");
+            automata.paint(context, palette);
+            // automata.paintcorners(context, automata.added, 20,"black");
+
+            // automata.paintcorners(context, corners, 10,"red");
+
+            var edges = automata.findedges(corners, context);
+            // console.log("Edged");
+
+            var paths = [];
+            //convert to how svgtracejs wants this
+            edges.forEach((e) => {
+                var path = {};
+                path.points = [{ x: e[0].col, y: e[0].row }, { x: e[e.length - 1].col, y: e[e.length - 1].row }];
+                path.boundingbox = [];
+                path.holechildren = [];
+                path.isholepath = false;
+                paths.push(path);
+
+            });
+            var options = { pal: palette, scale: cellscale, strokewidth: .5, layering: 0, layercontainerid: "layercnt", minedge: minedgelen };
+
+            // Getting ImageData from canvas with the helper function getImgdata().
+            [svgstr, svgstrsave] = ImageTracer.pathsToSVG(paths, customborder, automata.cornertable, automata.columns, automata.rows, options, gentab);
+            // console.log("SVG'd");
+
+            // Synchronous tracing to SVG string 
+            //var svgstr = ImageTracer.gridToSVG(automata.grid, palette, options);
+            while ($("svgcontainer").firstChild) {
+                $("svgcontainer").removeChild($("svgcontainer").firstChild);
+            }
+            // Appending SVG
+            ImageTracer.appendSVGString(svgstr, 'svgcontainer');
+
+            if ($("stv").checked) {
+                var parser = new DOMParser();
+                xmldoc = parser.parseFromString(svgstr, "image/svg+xml");
+                var svgjig = xmldoc.getElementsByTagName("svg")[0];
+                var outpaths = svgjig.getElementsByTagName("path");
+                context.strokeStyle = "black";
+                context.lineWidth = 2 * (cellscale / pixelsize);
+                context.scale((pixelsize / cellscale), (pixelsize / cellscale))
+                for (let p of outpaths) {
+                    var p2d = new Path2D(p.getAttribute("d"));
+                    context.stroke(p2d);
+                }
+            }
+            updatedimensions();
+        }
+
+
+        function unloadborder() {
+            customborder = {};
+            updatedimensions();
+        }
+        function updatedimensions(gen) {
+            var width_mm = 0;
+            var height_mm = 0;
+            if (customborder.svgdata) {
+                if (customborder.width) {
+                    width_mm = (customborder.width);
+                    height_mm = (customborder.height);
+                } else {
+                    $("dimensions").innerHTML = "Generate to know";
+                    return;
+                }
+
+            } else {
+                width_mm = parseInt($("ncols").value) * parseFloat($("cell_scale").value);
+                height_mm = parseInt($("nrows").value) * parseFloat($("cell_scale").value);
+            }
+            $("dimensions").innerHTML = Math.round(width_mm) + " x " + Math.round(height_mm);
+        }
+
+        function loadborder() {
+            var borderfile = $("borderfile");
+            var fr = new FileReader();
+            fr.readAsText(borderfile.files[0]);
+            fr.onload = function () {
+                //console.log(fr.result);
+                var parser = new DOMParser();
+                xmldoc = parser.parseFromString(fr.result, "image/svg+xml");
+                var svgdata_p = xmldoc.getElementsByTagName("svg")[0];
+                customborder.svgdata = svgdata_p;
+                updatedimensions();
+            };
+        }
+
+        function changepiecetabmode() {
+            elems = document.querySelectorAll(".rtab,.atab,.rabstab");
+            for (i = 0; i < elems.length; i++) {
+                elems[i].style.display = "none";
+            }
+            var activeclass = ""
+            switch ($("tabsizemode").value) {
+                case "rel":
+                    activeclass = "rtab";
+                    break;
+                case "abs":
+                    activeclass = "atab";
+                    break;
+                case "rabs":
+                    activeclass = "rabstab";
+                    break;
+            }
+            elems = document.getElementsByClassName(activeclass);
+            for (i = 0; i < elems.length; i++) {
+                elems[i].removeAttribute("style");
+            }
+        }
+        function switchtab(evt, tab) {
+            // Declare all variables
+            var i, j, tabcontent, tablinks;
+
+            if (tab == "rect") {
+                unloadborder();
+            }
+            if (tab == "help") {
+                tabcontent = document.getElementsByClassName("help");
+                for (i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].removeAttribute("style");
+                }
+                tabcontent = document.getElementsByClassName("controltable");
+                for (i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].style.display = "none";
+                }
+            } else {
+                tabcontent = document.getElementsByClassName("help");
+                for (i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].style.display = "none";
+                }
+                tabcontent = document.getElementsByClassName("controltable");
+                for (i = 0; i < tabcontent.length; i++) {
+                    tabcontent[i].removeAttribute("style");
+                }
+                // Get all elements with class="tabcontent" and hide them
+                tabcontent = document.getElementsByClassName("controltable");
+                for (i = 0; i < tabcontent.length; i++) {
+                    rowelems = tabcontent[i].rows;
+                    for (j = 0; j < rowelems.length; j++) {
+                        if (!rowelems[j].className || rowelems[j].className == tab) {
+                            rowelems[j].removeAttribute("style")
+                        } else {
+                            rowelems[j].style.display = "none"
+                        }
+                    }
+                }
+            }
+
+            // Get all elements with class="tablinks" and remove the class "active"
+            tablinks = document.getElementsByClassName("tablinks");
+            for (i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+
+            // Show the current tab, and add an "active" class to the button that opened the tab
+            // document.getElementById(tab).style.display = "block";
+            evt.currentTarget.className += " active";
+            changepiecetabmode();
+            if (tab == "custom" && !customborder.width) {
+                window.alert("Please choose a custom SVG border file");
+                document.getElementById("borderfile").click();
+            }
+        }
+
+

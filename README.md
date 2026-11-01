@@ -14,5 +14,6 @@ A Norwegian UI on top of the original engine, for laser-cut wooden puzzles:
 - Shaped (whimsy) pieces: butterfly, fish, star, heart or your own SVG. Drag them in the preview; a lock check warns about shapes that would fall out.
 - Optional photo shown under the puzzle in the preview only.
 - Download: SVG in millimetres with 0.1 mm lines.
+- Quality checks (`quality.js`): pieces that are too small or too thin are merged into a neighbour; every knob keeps 1 mm clearance from other lines (colliding knobs are flipped, moved, shrunk or straightened); edges that would cut through a shaped piece are trimmed where they meet its outline; any remaining crossing is marked in the preview.
 
-Files: `engine.js` is the original generator (lightly patched), `app.js` is the new UI and knob shape, `index.html` is the page.
+Files: `engine.js` is the original generator (lightly patched), `app.js` is the new UI and knob shape, `quality.js` the cutting checks, `index.html` the page.

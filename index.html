@@ -342,6 +342,11 @@
         #stage.withphoto .cuts { filter: drop-shadow(0 0 1px rgba(0, 0, 0, .85)); }
         #stage.withphoto .cuts path, #stage.withphoto .cuts rect { stroke: #fff !important; }
         #stage.dragging .cuts { opacity: .2; }
+        #stage .marks circle { fill: none; stroke: var(--bad); stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
+        #stage.dragging .marks { display: none; }
+        .check { font-size: 0.85rem; font-weight: 600; }
+        .check.ok { color: var(--good); }
+        .check.bad { color: var(--bad); }
         #stage.dragging .wfill { cursor: grabbing; }
 
         .empty {
@@ -392,6 +397,7 @@
     <script src="flatten.js"></script>
     <script src="engine.js"></script>
     <script src="app.js"></script>
+    <script src="quality.js"></script>
 </head>
 
 <body>
@@ -491,6 +497,7 @@
                 <span class="stat" id="stat-size">–</span>
                 <span class="sub" id="stat-pieces"></span>
                 <span class="sub" id="stat-shaped"></span>
+                <span class="check" id="stat-check"></span>
                 <span class="spacer"></span>
                 <span class="busy" id="busy" hidden>Lager puslespill…</span>
             </div>

@@ -909,7 +909,8 @@
             wpaths.forEach((p, i) => {
                 var bb = p.getBBox(), w = whimsies[i];
                 boxes.push(bb);
-                if (bb.x < 2 * cs || bb.y < 2 * cs || bb.x + bb.width > customborder.width - 2 * cs || bb.y + bb.height > customborder.height - 2 * cs)
+                var mg = Math.max(2 * cs, (typeof S !== "undefined" ? S.piece * 0.3 : 0));
+                if (bb.x < mg || bb.y < mg || bb.x + bb.width > customborder.width - mg || bb.y + bb.height > customborder.height - mg)
                     warnings.push(w.name + " ligger for nær kanten (eller utenfor) puslespillet.");
                 if (Math.min(bb.width, bb.height) < 4 * cs)
                     warnings.push(w.name + " er for liten. Gjør den større, eller gjør brikkene mindre.");
@@ -1076,6 +1077,7 @@
                     if (growncells == 0) stale++;
                     else stale = 0;
                 } while (automata.empty_cells && stale < 10);
+                if (window.beforePaint) window.beforePaint(automata);
                 paintoutput();
                 window.lastShapes = customborder.paths ? [...customborder.paths].map(p => ({ d: p.getAttribute("d"), whimsy: /^whimsy-/.test(p.id || "") })) : null;
                 if (whimsies.length) {

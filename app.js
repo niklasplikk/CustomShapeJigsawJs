@@ -24,36 +24,52 @@ let generated = false;
 // ------------------------------------------------------------------ knobs
 // Classic knob: flat shoulders, narrow neck, round head. Sized from the piece size
 // rather than the edge length, so every piece gets the same, proper-sized knobs.
+// Every edge is logged in edgeLog so quality.js can test it and redraw it if it
+// collides with another line.
+let edgeLog = [];
+
+function knobGeometry(v1, v2, k) {
+    // k: {t, m, flip, a, d, e}; returns absolute cubic segments [[p0,c1,c2,p3], ...]
+    const t = k.t, m = k.m, sg = k.flip ? -1 : 1;
+    const P = (l, w) => ({ l: l, w: w * sg });
+    const rel = [
+        [P(0.2, k.a * 0.3), P(m - 1.6 * t, -0.05 * t), P(m - 1.1 * t, -0.05 * t)],
+        [P(m - 0.55 * t, -0.05 * t), P(m - 0.25 * t, 0.7 * t), P(m - 0.6 * t, 0.9 * t)],
+        [P(m - 1.3 * t, 1.3 * t), P(m - 0.8 * t, 2.35 * t + k.d * 0.2), P(m, 2.35 * t + k.d * 0.2)],
+        [P(m + 0.8 * t, 2.35 * t + k.d * 0.2), P(m + 1.3 * t, 1.3 * t), P(m + 0.6 * t, 0.9 * t)],
+        [P(m + 0.25 * t, 0.7 * t), P(m + 0.55 * t, -0.05 * t), P(m + 1.1 * t, -0.05 * t)],
+        [P(m + 1.6 * t, -0.05 * t), P(0.8, k.e * 0.3), P(1, 0)],
+    ];
+    const dl = { x: v2.x - v1.x, y: v2.y - v1.y }, dw = { x: -dl.y, y: dl.x };
+    const at = (p) => ({ x: v1.x + p.l * dl.x + p.w * dw.x, y: v1.y + p.l * dl.y + p.w * dw.y });
+    let prev = { x: v1.x, y: v1.y };
+    return rel.map((seg) => { const abs = [prev].concat(seg.map(at)); prev = abs[3]; return abs; });
+}
+
+function knobD(v1, segs) {
+    const f = (p) => p.x + " " + p.y;
+    return "M " + f(v1) + " " + segs.map((s) => "C " + f(s[1]) + " " + f(s[2]) + " " + f(s[3])).join(" ") + " ";
+}
+
+function straightD(v1, v2) { return "M " + v1.x + " " + v1.y + " L " + v2.x + " " + v2.y + " "; }
+
 function gentab(v1, v2, isnew) {
     const L = Math.hypot(v2.x - v1.x, v2.y - v1.y);
     const want = (S.knob / 100) * S.piece;
     const r = Math.min(want, 0.15 * L);
-    const start = isnew ? "M " + v1.x + " " + v1.y + " " : "";
+    const entry = { v1: { x: v1.x, y: v1.y }, v2: { x: v2.x, y: v2.y }, L: L };
     // short edges get no knob rather than a tiny one that looks wrong and breaks
-    if (r < 0.6 * want || r < 1.5) return start + "L " + v2.x + " " + v2.y + " ";
-    next(); // engine's jitter: flip, a..e
-    const t = (r / L) * (1 + c);      // head size varies a little
-    const m = 0.5 + b * 0.6;          // knob centre slides a little along the edge
-    const P = (l, w) => ({ l: l, w: w * (flip ? -1 : 1) });
-    const pts = [
-        // shoulder
-        [P(0.2, a * 0.3), P(m - 1.6 * t, -0.05 * t), P(m - 1.1 * t, -0.05 * t)],
-        // into the neck
-        [P(m - 0.55 * t, -0.05 * t), P(m - 0.25 * t, 0.7 * t), P(m - 0.6 * t, 0.9 * t)],
-        // left half of the head
-        [P(m - 1.3 * t, 1.3 * t), P(m - 0.8 * t, 2.35 * t + d * 0.2), P(m, 2.35 * t + d * 0.2)],
-        // right half of the head
-        [P(m + 0.8 * t, 2.35 * t + d * 0.2), P(m + 1.3 * t, 1.3 * t), P(m + 0.6 * t, 0.9 * t)],
-        // out of the neck
-        [P(m + 0.25 * t, 0.7 * t), P(m + 0.55 * t, -0.05 * t), P(m + 1.1 * t, -0.05 * t)],
-        // shoulder
-        [P(m + 1.6 * t, -0.05 * t), P(0.8, e * 0.3), P(1, 0)],
-    ];
-    let str = start;
-    const dl = { x: v2.x - v1.x, y: v2.y - v1.y }, dw = { x: -dl.y, y: dl.x };
-    const at = (p) => (v1.x + p.l * dl.x + p.w * dw.x) + " " + (v1.y + p.l * dl.y + p.w * dw.y);
-    pts.forEach((seg) => { str += "C " + seg.map(at).join(" ") + " "; });
-    return str;
+    if (r < 0.6 * want || r < 1.5) {
+        entry.d = straightD(v1, v2);
+        entry.segs = null;
+    } else {
+        next(); // engine's jitter: flip, a..e
+        entry.k = { t: (r / L) * (1 + c), m: 0.5 + b * 0.6, flip: flip, a: a, d: d, e: e };
+        entry.segs = knobGeometry(v1, v2, entry.k);
+        entry.d = knobD(v1, entry.segs);
+    }
+    edgeLog.push(entry);
+    return entry.d;
 }
 
 // ------------------------------------------------------------------ engine sync
@@ -88,7 +104,9 @@ function regen(delay) {
     regenTimer = setTimeout(() => {
         try {
             syncEngine();
+            edgeLog = [];
             generate();
+            checkCuts();
             generated = true;
             renderStage();
         } catch (e) {
@@ -124,6 +142,8 @@ function renderStage() {
     html += '<g id="photo"></g>';
     html += '<g class="whimsyfills">' + wpaths.map((d, i) => '<path data-i="' + i + '" class="wfill' + (i === selectedWhimsy ? " sel" : "") + '" d="' + d + '"/>').join("") + "</g>";
     html += '<g class="cuts">' + inner.replace(/^"/, "") + "</g>";
+    const pieceMm = S.piece;
+    html += '<g class="marks">' + cutReport.crossings.map((p) => '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + (pieceMm * 0.12) + '"/>').join("") + "</g>";
     stage.innerHTML = html;
     stage.querySelectorAll(".cuts > :not(path):not(rect)").forEach((n) => n.remove());
 
@@ -161,8 +181,22 @@ function renderStage() {
         return;
     }
 
-    const warns = $("whimsywarn").innerText.trim();
-    $("warnings").innerHTML = warns ? warns.split("\n").map((w) => '<p class="warn">' + escapeHtml(w.replace(/^⚠\s*/, "")) + "</p>").join("") : "";
+    const warnList = $("whimsywarn").innerText.trim().split("\n").filter(Boolean).map((w) => w.replace(/^⚠\s*/, ""));
+    const n = cutReport.crossings.length;
+    const chk = $("stat-check");
+    if (n) {
+        chk.className = "check bad";
+        chk.textContent = n === 1 ? "1 kryss" : n + " kryss";
+        warnList.unshift((n === 1 ? "Ett sted" : n + " steder") + " krysser linjer hverandre (merket med rød ring). Prøv «Ny variant», eller flytt spesialbrikken litt.");
+    } else {
+        chk.className = "check ok";
+        chk.textContent = "✓ Ingen kryssende linjer";
+    }
+    const fixes = [];
+    if (cutReport.merged) fixes.push(cutReport.merged + " for små biter slått sammen");
+    if (cutReport.fixed + cutReport.straightened) fixes.push((cutReport.fixed + cutReport.straightened) + " knotter justert");
+    chk.title = fixes.join(", ");
+    $("warnings").innerHTML = warnList.map((w) => '<p class="warn">' + escapeHtml(w) + "</p>").join("");
 }
 
 function drawEmpty() {

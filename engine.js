@@ -1080,7 +1080,7 @@
                 } while (automata.empty_cells && stale < 10);
                 if (window.beforePaint) window.beforePaint(automata);
                 paintoutput();
-                window.lastShapes = customborder.paths ? [...customborder.paths].map(p => ({ d: p.getAttribute("d"), whimsy: /^whimsy-/.test(p.id || "") })) : null;
+                window.lastShapes = customborder.paths ? [...customborder.paths].map(p => ({ d: p.getAttribute("d"), whimsy: /^whimsy-/.test(p.id || ""), wi: /^whimsy-/.test(p.id || "") ? parseInt(p.id.slice(7)) : -1 })) : null;
                 if (whimsies.length) {
                     $("piececount").innerHTML = (parseInt($("piececount").innerHTML) + whimsies.length) + " (including " + whimsies.length + " shaped)";
                 }

@@ -152,6 +152,7 @@ function regen(delay) {
             syncEngine();
             edgeLog = [];
             generate();
+            applyPlugs();
             checkCuts();
             mergeEdgeFigures();
             generated = true;
@@ -268,7 +269,8 @@ function stageToImage(p) {
 
 // ------------------------------------------------------------------ picking shapes from the photo
 // PICK.mode: null | "wand" (click regions of the photo) | "draw" (trace an outline by hand)
-const PICK = { mode: null, op: "add", tol: 40, sel: null, outline: null, drawing: null };
+//            | "plug" (place knobs on the outline of figure PICK.figure)
+const PICK = { mode: null, op: "add", tol: 40, sel: null, outline: null, drawing: null, figure: -1 };
 
 function startPick(mode) {
     if (mode === "wand" && !IMG.url) return;
@@ -278,10 +280,12 @@ function startPick(mode) {
     $("pickMsg").textContent = mode === "wand"
         ? "Klikk på delene av figuren (kropp, hode, ører …). Bruk «Fjern» hvis noe kom med som ikke skulle det."
         : "Tegn rundt figuren med musa eller fingeren. Slipp for å lukke omrisset.";
-    $("pickDone").hidden = mode !== "wand";
-    $("pickDone").disabled = true;
+    $("pickDone").hidden = mode === "draw";
+    $("pickDone").disabled = mode !== "plug";
+    $("pickDone").textContent = mode === "plug" ? "Ferdig" : "Lag figurbrikke";
+    $("pickCancel").hidden = mode === "plug";
     document.querySelectorAll("#pickOp button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === "add"));
-    $("stage").classList.add("picking");
+    $("stage").classList.add(mode === "plug" ? "plugging" : "picking");
     document.querySelector(".preview").classList.add("picking-on");
     drawPhoto(); drawOverlay();
     $("pickbar").scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -290,7 +294,7 @@ function startPick(mode) {
 function endPick() {
     PICK.mode = null; PICK.sel = null; PICK.outline = null; PICK.drawing = null;
     $("pickbar").hidden = true;
-    $("stage").classList.remove("picking");
+    $("stage").classList.remove("picking", "plugging");
     document.querySelector(".preview").classList.remove("picking-on");
     drawPhoto(); drawOverlay();
 }
@@ -461,6 +465,7 @@ function addImageWhimsy(d, box, edge) {
         const stage = $("stage");
         if (!stage.contains(evt.target)) return;
         if (PICK.mode === "wand") { wandClick(evt); evt.preventDefault(); return; }
+        if (PICK.mode === "plug") { plugClick(stagePoint(evt)); evt.preventDefault(); return; }
         if (PICK.mode === "draw") {
             PICK.drawing = [stagePoint(evt)];
             stage.setPointerCapture(evt.pointerId);
@@ -548,6 +553,7 @@ function addWhimsyShape(name, shape) {
 
 function selectWhimsy(i) {
     selectedWhimsy = i;
+    if (PICK.mode === "plug" && PICK.figure !== i) { PICK.figure = i; plugMessage(); }
     document.querySelectorAll(".wcard").forEach((c, k) => c.classList.toggle("sel", k === i));
     document.querySelectorAll("#stage .wfill").forEach((p) => p.classList.toggle("sel", parseInt(p.dataset.i) === i));
 }
@@ -576,6 +582,8 @@ function buildWhimsyCards() {
             '<button type="button" class="btn small" data-d="-1" aria-label="Færre biter">−</button>' +
             "<output>" + n + "</output>" +
             '<button type="button" class="btn small" data-d="1" aria-label="Flere biter">+</button></div><span></span></div>' +
+            '<div class="row"><span>Knotter</span><button type="button" class="btn small plugbtn">' +
+            ((w.plugs || []).length ? (w.plugs.length + " · endre") : "Legg til") + "</button><span></span></div>" +
             '<label class="row"><span>Størrelse</span><input type="range" min="15" max="400" step="1" value="' + width + '" id="wsize' + i + '"><output>' + width + " mm</output></label>" +
             '<label class="row"><span>Rotasjon</span><input type="range" min="-180" max="180" step="5" value="' + w.rot + '" id="wrot' + i + '"><output>' + w.rot + "°</output></label>";
         card.addEventListener("pointerdown", () => selectWhimsy(i));
@@ -590,6 +598,7 @@ function buildWhimsyCards() {
             card.querySelector(".stepper output").textContent = w.pieces;
             regen(0);
         }));
+        card.querySelector(".plugbtn").addEventListener("click", () => startPlugs(i));
         const size = card.querySelector("#wsize" + i), rot = card.querySelector("#wrot" + i);
         const detach = () => { if (w.anchor) { delete w.anchor; const c = card.querySelector(".chip.anchor"); if (c) c.remove(); } };
         size.addEventListener("input", () => { detach(); w.width = +size.value; size.nextElementSibling.textContent = size.value + " mm"; regen(); });
@@ -776,7 +785,7 @@ function initUI() {
     $("pickFromImage").addEventListener("click", () => startPick("wand"));
     $("drawShape").addEventListener("click", () => startPick("draw"));
     $("pickCancel").addEventListener("click", endPick);
-    $("pickDone").addEventListener("click", finishWand);
+    $("pickDone").addEventListener("click", () => (PICK.mode === "plug" ? endPick() : finishWand()));
     $("pickTol").addEventListener("input", (e) => { PICK.tol = +e.target.value; });
     $("whimsySvg").addEventListener("change", (e) => {
         const f = e.target.files[0]; if (!f) return;

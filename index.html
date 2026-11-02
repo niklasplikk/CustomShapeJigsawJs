@@ -343,6 +343,10 @@
         #stage.withphoto .cuts path, #stage.withphoto .cuts rect { stroke: #fff !important; }
         #stage.dragging .cuts { opacity: .2; }
         #stage.picking { cursor: crosshair; }
+        #stage.plugging { cursor: crosshair; }
+        #stage.plugging .wfill { cursor: crosshair; }
+        #stage.plugging .wfill.sel { stroke: var(--accent); stroke-width: 3px; vector-effect: non-scaling-stroke; }
+        .plugbtn { justify-self: start; font-size: 0.85rem !important; }
         #stage.picking .cuts { opacity: .25; }
         #stage.picking .marks, #stage.picking .whimsyfills { display: none; }
         #stage .pickline { fill: none; stroke: var(--accent); stroke-width: 2.5px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
@@ -426,6 +430,7 @@
     <script src="engine.js"></script>
     <script src="image.js"></script>
     <script src="app.js"></script>
+    <script src="plugs.js"></script>
     <script src="quality.js"></script>
 </head>
 

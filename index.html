@@ -431,6 +431,7 @@
     <script src="image.js"></script>
     <script src="app.js"></script>
     <script src="plugs.js"></script>
+    <script src="export.js"></script>
     <script src="quality.js"></script>
 </head>
 
@@ -547,8 +548,17 @@
 
             <section class="step">
                 <h2><span class="n">4</span>Download</h2>
+                <div class="field">
+                    <span class="label">File format</span>
+                    <div class="seg" id="formatSeg" role="group" aria-label="File format">
+                        <button type="button" data-v="svg" aria-pressed="true">SVG</button>
+                        <button type="button" data-v="pdf" aria-pressed="false">PDF</button>
+                        <button type="button" data-v="dxf" aria-pressed="false">DXF</button>
+                    </div>
+                    <p class="hint" id="formatHint"></p>
+                </div>
                 <button type="button" class="btn primary" id="download" disabled>Download SVG for laser</button>
-                <p class="hint">The file is in millimetres with 0.1 mm lines. Crossing lines and pieces that are too small are fixed automatically, but check the file before you cut, and try a test cut in cardboard first.</p>
+                <p class="hint">All formats are in millimetres, with every line cut once. Crossing lines and pieces that are too small are fixed automatically, but check the size after importing and try a test cut in cardboard first.</p>
             </section>
         </aside>
 

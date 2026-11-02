@@ -837,7 +837,21 @@ function initUI() {
         e.target.value = "";
     });
 
-    $("download").addEventListener("click", savesvg);
+    const FORMAT_HINTS = {
+        svg: "For LightBurn, xTool Creative Space, Glowforge and most laser software.",
+        pdf: "For Bambu Suite (Bambu Lab R1 and H2D), and lasers you print to from Illustrator or CorelDRAW.",
+        dxf: "For xTool Creative Space, RDWorks/LaserWorks, CAD programs and laser cutting services. Curves become fine polylines.",
+    };
+    let format = "svg";
+    try { format = localStorage.getItem("jw-format") || "svg"; } catch (e) { /* storage blocked */ }
+    const showFormat = () => {
+        document.querySelectorAll("#formatSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === format));
+        $("formatHint").textContent = FORMAT_HINTS[format];
+        $("download").textContent = "Download " + format.toUpperCase() + " for laser";
+    };
+    seg("formatSeg", (v) => { format = v; try { localStorage.setItem("jw-format", v); } catch (e) { /* storage blocked */ } showFormat(); });
+    showFormat();
+    $("download").addEventListener("click", () => downloadCut(format));
     updateImageUI();
     regen(0);
 }

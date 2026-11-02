@@ -57,12 +57,12 @@ function straightD(v1, v2) { return "M " + v1.x + " " + v1.y + " L " + v2.x + " 
 
 function gentab(v1, v2, isnew) {
     const L = Math.hypot(v2.x - v1.x, v2.y - v1.y);
-    let want = (S.knob / 100) * S.piece, rmax = 0.15, rmin = 1.5;
+    let want = (S.knob / 100) * S.piece, rmax = 0.15, rmin = 1.5, inFigure = false;
     // inside a figure split into several pieces, knobs follow the size of those pieces
     const mid = new DOMPoint((v1.x + v2.x) / 2, (v1.y + v2.y) / 2);
     for (const info of (window.multiInfo || [])) {
         if (info.path.isConnected && info.path.isPointInFill(mid)) {
-            want = (S.knob / 100) * info.piece * 1.15; rmax = 0.17; rmin = 1.0;
+            want = (S.knob / 100) * info.piece * 1.15; rmax = 0.17; rmin = 1.0; inFigure = true;
             break;
         }
     }
@@ -74,7 +74,8 @@ function gentab(v1, v2, isnew) {
         entry.segs = null;
     } else {
         next(); // engine's jitter: flip, a..e
-        entry.k = { t: (r / L) * (1 + c), m: 0.5 + b * 0.6, flip: flip, a: a, d: d, e: e };
+        // knobs on the cuts inside a figure sit near the middle of the cut
+        entry.k = { t: (r / L) * (1 + c), m: 0.5 + b * (inFigure ? 0.15 : 0.6), flip: flip, a: a, d: d, e: e };
         entry.segs = knobGeometry(v1, v2, entry.k);
         entry.d = knobD(v1, entry.segs);
     }

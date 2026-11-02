@@ -4,7 +4,7 @@
 
 const NS = "http://www.w3.org/2000/svg";
 const STYLE_NOISE = { classic: 0.12, organic: 0.5, wild: 0.9 };
-const SMOOTH_WORDS = ["Av", "Lett", "Middels", "Mye"];
+const SMOOTH_WORDS = ["Off", "Light", "Medium", "Strong"];
 
 const S = {
     shape: "rect",          // "rect" | "image" (outline traced from the photo) | "svg"
@@ -187,7 +187,7 @@ function regen(delay) {
             renderStage();
         } catch (e) {
             console.error(e);
-            $("warnings").innerHTML = '<p class="warn">Noe gikk galt under genereringen: ' + escapeHtml(String(e.message || e)) + "</p>";
+            $("warnings").innerHTML = '<p class="warn">Something went wrong while making the puzzle: ' + escapeHtml(String(e.message || e)) + "</p>";
         }
         $("busy").hidden = true;
     }, delay === undefined ? 250 : delay);
@@ -223,8 +223,8 @@ function renderStage() {
     const bb = stage.querySelector(".board").getBBox();
     const pieces = parseInt($("piececount").textContent) || 0;
     $("stat-size").textContent = Math.round(bb.width) + " × " + Math.round(bb.height) + " mm";
-    $("stat-pieces").textContent = pieces + (pieces === 1 ? " brikke" : " brikker");
-    $("stat-shaped").textContent = whimsies.length ? "· " + whimsies.length + (whimsies.length === 1 ? " figur" : " figurer") : "";
+    $("stat-pieces").textContent = pieces + (pieces === 1 ? " piece" : " pieces");
+    $("stat-shaped").textContent = whimsies.length ? "· " + whimsies.length + (whimsies.length === 1 ? " figure" : " figures") : "";
     $("download").disabled = false;
     $("empty").hidden = true;
     stage.hidden = false;
@@ -240,20 +240,29 @@ function renderStage() {
         return;
     }
 
+    // figures that follow the picture get their size from it; show it on their cards
+    whimsies.forEach((w, i) => {
+        const r = $("wsize" + i);
+        if (!r || r === document.activeElement) return;
+        const v = Math.round(w.width || 0);
+        r.value = v;
+        r.nextElementSibling.textContent = v + " mm";
+    });
+
     const warnList = $("whimsywarn").innerText.trim().split("\n").filter(Boolean).map((w) => w.replace(/^⚠\s*/, ""));
     const n = cutReport.crossings.length;
     const chk = $("stat-check");
     if (n) {
         chk.className = "check bad";
-        chk.textContent = n === 1 ? "1 kryss" : n + " kryss";
-        warnList.unshift((n === 1 ? "Ett sted" : n + " steder") + " krysser linjer hverandre (merket med rød ring). Prøv «Ny variant», eller flytt figuren litt.");
+        chk.textContent = n === 1 ? "1 crossing" : n + " crossings";
+        warnList.unshift((n === 1 ? "Lines cross in one place" : "Lines cross in " + n + " places") + " (marked with a red ring). Try “New variant”, or move the figure a little.");
     } else {
         chk.className = "check ok";
-        chk.textContent = "✓ Ingen kryssende linjer";
+        chk.textContent = "✓ No crossing lines";
     }
     const fixes = [];
-    if (cutReport.merged) fixes.push(cutReport.merged + " for små biter slått sammen");
-    if (cutReport.fixed + cutReport.straightened) fixes.push((cutReport.fixed + cutReport.straightened) + " knotter justert");
+    if (cutReport.merged) fixes.push(cutReport.merged + " small pieces merged");
+    if (cutReport.fixed + cutReport.straightened) fixes.push((cutReport.fixed + cutReport.straightened) + " knobs adjusted");
     chk.title = fixes.join(", ");
     $("warnings").innerHTML = warnList.map((w) => '<p class="warn">' + escapeHtml(w) + "</p>").join("");
 }
@@ -306,11 +315,11 @@ function startPick(mode) {
     $("pickbar").hidden = false;
     $("pickWand").hidden = mode !== "wand";
     $("pickMsg").textContent = mode === "wand"
-        ? "Klikk på delene av figuren (kropp, hode, ører …). Bruk «Fjern» hvis noe kom med som ikke skulle det."
-        : "Tegn rundt figuren med musa eller fingeren. Slipp for å lukke omrisset.";
+        ? "Click the parts of the figure (body, head, ears …). Use “Remove” if something got in that shouldn't."
+        : "Draw around the figure with your mouse or finger. Let go to close the outline.";
     $("pickDone").hidden = mode === "draw";
     $("pickDone").disabled = mode !== "plug";
-    $("pickDone").textContent = mode === "plug" ? "Ferdig" : "Lag figurbrikke";
+    $("pickDone").textContent = mode === "plug" ? "Done" : "Make figure piece";
     $("pickCancel").hidden = mode === "plug";
     document.querySelectorAll("#pickOp button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === "add"));
     $("stage").classList.add(mode === "plug" ? "plugging" : "picking");
@@ -467,8 +476,8 @@ function finishDraw() {
 
 function nextName() {
     let n = whimsies.length + 1;
-    while (whimsies.some((w) => w.name === "Figur " + n)) n++;
-    return "Figur " + n;
+    while (whimsies.some((w) => w.name === "Figure " + n)) n++;
+    return "Figure " + n;
 }
 
 function addImageWhimsy(d, box, edge) {
@@ -546,9 +555,9 @@ function thumbSvg(shape, cls) {
 }
 
 function lockInfo(s) {
-    if (s < 0.85) return { cls: "good", txt: "Låser godt" };
-    if (s < 0.92) return { cls: "weak", txt: "Låser svakt" };
-    return { cls: "bad", txt: "Faller ut" };
+    if (s < 0.85) return { cls: "good", txt: "Locks well" };
+    if (s < 0.92) return { cls: "weak", txt: "Locks weakly" };
+    return { cls: "bad", txt: "Falls out" };
 }
 
 function findFreeSpot(width) {
@@ -604,17 +613,17 @@ function buildWhimsyCards() {
             '<div class="whead">' + thumbSvg(w, "wthumb") +
             '<div class="wname"><strong>' + escapeHtml(w.name) + "</strong><span>" +
             '<span class="chip ' + lock.cls + '">' + lock.txt + "</span>" +
-            (w.anchor ? ' <span class="chip anchor">· følger bildet</span>' : "") + "</span></div>" +
-            '<button class="icon" type="button" aria-label="Fjern ' + escapeHtml(w.name) + '" title="Fjern">✕</button></div>' +
-            '<div class="row"><span>Biter</span><div class="stepper">' +
-            '<button type="button" class="btn small" data-d="-1" aria-label="Færre biter">−</button>' +
+            (w.anchor ? ' <span class="chip anchor">· follows picture</span>' : "") + "</span></div>" +
+            '<button class="icon" type="button" aria-label="Remove ' + escapeHtml(w.name) + '" title="Remove">✕</button></div>' +
+            '<div class="row"><span>Pieces</span><div class="stepper">' +
+            '<button type="button" class="btn small" data-d="-1" aria-label="Fewer pieces">−</button>' +
             "<output>" + n + "</output>" +
-            '<button type="button" class="btn small" data-d="1" aria-label="Flere biter">+</button></div><span></span></div>' +
-            '<div class="row"><span>Knotter</span><button type="button" class="btn small plugbtn">' +
-            ((w.plugs || []).length ? (w.plugs.length + " · endre") : "Legg til") + "</button><span></span></div>" +
-            '<label class="row"><span>Glatthet</span><input type="range" min="0" max="3" step="1" value="' + (w.smooth === undefined ? 1 : w.smooth) + '" id="wsmooth' + i + '"><output>' + SMOOTH_WORDS[w.smooth === undefined ? 1 : w.smooth] + "</output></label>" +
-            '<label class="row"><span>Størrelse</span><input type="range" min="15" max="400" step="1" value="' + width + '" id="wsize' + i + '"><output>' + width + " mm</output></label>" +
-            '<label class="row"><span>Rotasjon</span><input type="range" min="-180" max="180" step="5" value="' + w.rot + '" id="wrot' + i + '"><output>' + w.rot + "°</output></label>";
+            '<button type="button" class="btn small" data-d="1" aria-label="More pieces">+</button></div><span></span></div>' +
+            '<div class="row"><span>Knobs</span><button type="button" class="btn small plugbtn">' +
+            ((w.plugs || []).length ? (w.plugs.length + " · edit") : "Add") + "</button><span></span></div>" +
+            '<label class="row"><span>Smoothing</span><input type="range" min="0" max="3" step="1" value="' + (w.smooth === undefined ? 1 : w.smooth) + '" id="wsmooth' + i + '"><output>' + SMOOTH_WORDS[w.smooth === undefined ? 1 : w.smooth] + "</output></label>" +
+            '<label class="row"><span>Size</span><input type="range" min="15" max="400" step="1" value="' + width + '" id="wsize' + i + '"><output>' + width + " mm</output></label>" +
+            '<label class="row"><span>Rotation</span><input type="range" min="-180" max="180" step="5" value="' + w.rot + '" id="wrot' + i + '"><output>' + w.rot + "°</output></label>";
         card.addEventListener("pointerdown", () => selectWhimsy(i));
         card.querySelector(".icon").addEventListener("click", () => {
             whimsies.splice(i, 1);
@@ -646,7 +655,7 @@ function measureBorder(svgEl) {
     document.body.appendChild(clone);
     flatten(clone, false, true);
     const paths = clone.getElementsByTagName("path");
-    if (!paths.length) { document.body.removeChild(clone); throw new Error("Fant ingen lukket form i filen."); }
+    if (!paths.length) { document.body.removeChild(clone); throw new Error("No closed shape found in the file."); }
     const vt = paths[0].getCTM();
     const holder = document.createElementNS(NS, "svg");
     holder.setAttribute("style", "position:absolute;left:-10000px;top:0");
@@ -669,9 +678,9 @@ function measureBorder(svgEl) {
 function loadBorderText(text, name) {
     try {
         const svg = new DOMParser().parseFromString(text, "image/svg+xml").getElementsByTagName("svg")[0];
-        if (!svg) throw new Error("Filen ser ikke ut til å være en SVG.");
+        if (!svg) throw new Error("The file doesn't look like an SVG.");
         const nat = measureBorder(svg);
-        if (!(nat.w > 0 && nat.h > 0)) throw new Error("Fant ingen form med størrelse i filen.");
+        if (!(nat.w > 0 && nat.h > 0)) throw new Error("No shape with a size found in the file.");
         S.border = { name: name, natW: nat.w, natH: nat.h, svg: svg };
         S.borderW = Math.round(nat.w >= 80 && nat.w <= 600 ? nat.w : 200);
         whimsies.forEach((w) => { if (!w.anchor) { w.x = null; w.y = null; w.auto = true; } });
@@ -681,7 +690,7 @@ function loadBorderText(text, name) {
         $("drop").classList.add("has");
         regen(0);
     } catch (e) {
-        alertInline("Kunne ikke bruke formen: " + e.message);
+        alertInline("Couldn't use the shape: " + e.message);
     }
 }
 
@@ -700,7 +709,7 @@ function savesvg() {
     const pieces = parseInt($("piececount").textContent) || 0;
     const size = $("stat-size").textContent.replace(/\s/g, "").replace("×", "x");
     const out = svgstrsave.replace(/stroke-width="0?\.5"/g, 'stroke-width="0.1"').replace(/stroke-width:0\.5/g, "stroke-width:0.1").replace('"<rect', "<rect");
-    save("puslespill-" + pieces + "-brikker-" + size + ".svg", '<?xml version="1.0" encoding="UTF-8"?>\n' + out);
+    save("jigsaw-" + pieces + "-pieces-" + size + ".svg", '<?xml version="1.0" encoding="UTF-8"?>\n' + out);
 }
 
 // ------------------------------------------------------------------ wiring
@@ -730,7 +739,7 @@ function updateImageUI() {
     $("photoName").textContent = IMG.name;
     const imgBtn = document.querySelector('#shapeSeg button[data-v="image"]');
     imgBtn.disabled = !(has && IMG.bg);
-    imgBtn.title = has && !IMG.bg ? "Fant ingen ensfarget bakgrunn rundt motivet i bildet" : "";
+    imgBtn.title = has && !IMG.bg ? "No plain background found around the motif in the picture" : "";
     $("pickFromImage").disabled = !has;
     $("pickHint").hidden = has;
 }
@@ -755,7 +764,7 @@ function initUI() {
     const pieceIn = $("pieceSize");
     pieceIn.addEventListener("input", () => { S.piece = +pieceIn.value; $("pieceOut").textContent = pieceIn.value + " mm"; regen(); });
     const knobIn = $("knobSize");
-    const knobWord = (v) => v < 11 ? "Små" : v < 15 ? "Vanlige" : "Store";
+    const knobWord = (v) => v < 11 ? "Small" : v < 15 ? "Regular" : "Large";
     knobIn.addEventListener("input", () => { S.knob = +knobIn.value; $("knobOut").textContent = knobWord(S.knob); regen(); });
     $("knobOut").textContent = knobWord(S.knob);
 
@@ -823,7 +832,7 @@ function initUI() {
         const f = e.target.files[0]; if (!f) return;
         readFile(f, (t) => {
             try { addWhimsyShape(f.name.replace(/\.svg$/i, ""), whimsyFromSvgText(t)); }
-            catch (err) { alertInline("Kunne ikke bruke " + f.name + ": " + err); }
+            catch (err) { alertInline("Couldn't use " + f.name + ": " + err); }
         });
         e.target.value = "";
     });

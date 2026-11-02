@@ -911,16 +911,16 @@
                 boxes.push(bb);
                 var mg = Math.max(2 * cs, (typeof S !== "undefined" ? S.piece * 0.1 : 0));
                 if (!w.edge && (bb.x < mg || bb.y < mg || bb.x + bb.width > customborder.width - mg || bb.y + bb.height > customborder.height - mg))
-                    warnings.push(w.name + " ligger for nær kanten (eller utenfor) puslespillet.");
+                    warnings.push(w.name + " is too close to the edge of the puzzle (or outside it).");
                 if (Math.min(bb.width, bb.height) < 4 * cs)
-                    warnings.push(w.name + " er for liten. Gjør den større, eller gjør brikkene mindre.");
+                    warnings.push(w.name + " is too small. Make it bigger, or make the pieces smaller.");
                 if (w.solidity >= 0.92)
-                    warnings.push(w.name + " har nesten ingen innsnevringer og vil falle ut av puslespillet.");
+                    warnings.push(w.name + " has almost no narrow parts and will fall out of the puzzle. Add knobs to lock it in.");
             });
             for (var i = 0; i < boxes.length; i++) for (var j = i + 1; j < boxes.length; j++) {
                 var a = boxes[i], b = boxes[j], m = 2 * cs;
                 if (a.x < b.x + b.width + m && b.x < a.x + a.width + m && a.y < b.y + b.height + m && b.y < a.y + a.height + m)
-                    warnings.push(whimsies[i].name + " og " + whimsies[j].name + " ligger for nær hverandre eller overlapper.");
+                    warnings.push(whimsies[i].name + " and " + whimsies[j].name + " are too close together or overlap.");
             }
             renderWhimsyList();
             return warnings;

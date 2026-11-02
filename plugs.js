@@ -96,7 +96,7 @@ function plugClick(pt) {
     }
     p.remove();
     if (bd > Math.max(4, S.piece * 0.25)) {
-        $("pickMsg").textContent = "Klikk nærmere kanten av " + w.name + ".";
+        $("pickMsg").textContent = "Click closer to the edge of " + w.name + ".";
         return;
     }
     w.plugs = w.plugs || [];
@@ -119,9 +119,9 @@ function plugClick(pt) {
 function plugMessage() {
     const w = whimsies[PICK.figure];
     const n = (w && w.plugs || []).length;
-    $("pickMsg").textContent = "Klikk på kanten av " + (w ? w.name : "figuren") +
-        " der den skal låses fast. Klikk på en knott for å snu den, og en gang til for å fjerne den." +
-        (n ? " (" + n + (n === 1 ? " knott)" : " knotter)") : "");
+    $("pickMsg").textContent = "Click the edge of " + (w ? w.name : "the figure") +
+        " where it should lock in. Click a knob to flip it, and once more to remove it." +
+        (n ? " (" + n + (n === 1 ? " knob)" : " knobs)") : "");
 }
 
 function startPlugs(i) {

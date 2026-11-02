@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="no">
+<html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>Puslespillgenerator</title>
+    <title>Jigsaw Workshop</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap">
@@ -438,41 +438,41 @@
     <div class="app">
         <aside class="panel">
             <header class="brand">
-                <h1>Puslespillgenerator</h1>
-                <p>Lag laserklare puslespill i tre, med egen form og spesialbrikker.</p>
+                <h1>Jigsaw Workshop</h1>
+                <p>Make laser-ready wooden jigsaw puzzles with your own shape and figure pieces.</p>
             </header>
 
             <section class="step">
-                <h2><span class="n">1</span>Bilde og form</h2>
+                <h2><span class="n">1</span>Picture and shape</h2>
                 <div class="field">
-                    <span class="label">Bilde</span>
+                    <span class="label">Picture</span>
                     <label class="drop" id="photoPick">
-                        <strong>Velg bildet til puslespillet</strong>
-                        <span class="hint">Valgfritt. Har bildet hvit eller ensfarget bakgrunn, blir motivets omriss formen på puslespillet.</span>
+                        <strong>Choose the picture for the puzzle</strong>
+                        <span class="hint">Optional. If the picture has a white or plain background, the outline of the motif becomes the shape of the puzzle.</span>
                         <input type="file" id="photoFile" accept="image/*" hidden>
                     </label>
                     <div id="photoLoaded" class="loaded" hidden>
                         <span class="fname" id="photoName"></span>
-                        <label class="toggle"><input type="checkbox" id="photoToggle" checked> Vis</label>
-                        <label class="linkbtn">Bytt<input type="file" accept="image/*" hidden onchange="document.getElementById('photoFile').files = this.files; document.getElementById('photoFile').dispatchEvent(new Event('change'))"></label>
-                        <button type="button" class="linkbtn" id="photoRemove">Fjern</button>
+                        <label class="toggle"><input type="checkbox" id="photoToggle" checked> Show</label>
+                        <label class="linkbtn">Replace<input type="file" accept="image/*" hidden onchange="document.getElementById('photoFile').files = this.files; document.getElementById('photoFile').dispatchEvent(new Event('change'))"></label>
+                        <button type="button" class="linkbtn" id="photoRemove">Remove</button>
                     </div>
                 </div>
 
                 <div class="field">
-                    <span class="label">Form</span>
-                    <div class="seg" id="shapeSeg" role="group" aria-label="Form på puslespillet">
-                        <button type="button" data-v="rect" aria-pressed="true">Rektangel</button>
-                        <button type="button" data-v="image" aria-pressed="false" disabled>Fra bildet</button>
-                        <button type="button" data-v="svg" aria-pressed="false">SVG-fil</button>
+                    <span class="label">Shape</span>
+                    <div class="seg" id="shapeSeg" role="group" aria-label="Puzzle shape">
+                        <button type="button" data-v="rect" aria-pressed="true">Rectangle</button>
+                        <button type="button" data-v="image" aria-pressed="false" disabled>From picture</button>
+                        <button type="button" data-v="svg" aria-pressed="false">SVG file</button>
                     </div>
                 </div>
 
                 <div id="rectOpts" class="field">
                     <div class="dims">
-                        <label class="num"><input id="rectW" type="number" inputmode="decimal" value="300" min="20" aria-label="Bredde"><span>mm</span></label>
+                        <label class="num"><input id="rectW" type="number" inputmode="decimal" value="300" min="20" aria-label="Width"><span>mm</span></label>
                         <span class="x">×</span>
-                        <label class="num"><input id="rectH" type="number" inputmode="decimal" value="200" min="20" aria-label="Høyde"><span>mm</span></label>
+                        <label class="num"><input id="rectH" type="number" inputmode="decimal" value="200" min="20" aria-label="Height"><span>mm</span></label>
                     </div>
                     <div class="chips">
                         <button type="button" class="chipbtn" data-preset="297x210">A4</button>
@@ -484,71 +484,71 @@
 
                 <div id="imgOpts" class="field" hidden>
                     <div class="dims">
-                        <label class="num"><input id="imgW" type="number" inputmode="decimal" value="300" min="20" aria-label="Bredde"><span>mm bred</span></label>
-                        <span class="hint">× <span id="imgH">–</span> mm høy</span>
+                        <label class="num"><input id="imgW" type="number" inputmode="decimal" value="300" min="20" aria-label="Width"><span>mm wide</span></label>
+                        <span class="hint">× <span id="imgH">–</span> mm high</span>
                     </div>
                     <div class="range">
-                        <label class="label" for="borderSmooth">Glatt ytterkant</label>
+                        <label class="label" for="borderSmooth">Smooth outer edge</label>
                         <input type="range" id="borderSmooth" min="0" max="3" step="1" value="2">
-                        <output id="borderSmoothOut">Middels</output>
+                        <output id="borderSmoothOut">Medium</output>
                     </div>
-                    <p class="hint">Omrisset er hentet fra bakgrunnen rundt motivet.</p>
+                    <p class="hint">The outline comes from the background around the motif.</p>
                 </div>
 
                 <div id="svgOpts" class="field" hidden>
                     <label class="drop" id="drop">
-                        <strong>Slipp en SVG her, eller velg fil</strong>
-                        <span class="hint">For eksempel en bokstav. Hull, som i A og O, går fint.</span>
+                        <strong>Drop an SVG here, or choose a file</strong>
+                        <span class="hint">A letter, for example. Holes, as in A and O, are fine.</span>
                         <input type="file" id="borderFile" accept=".svg,image/svg+xml" hidden>
                     </label>
                     <div id="borderloaded" class="loaded" hidden>
                         <span class="fname" id="bordername"></span>
-                        <label class="num"><input id="borderW" type="number" inputmode="decimal" min="20" aria-label="Bredde på formen"><span>mm bred</span></label>
-                        <span class="hint">× <span id="borderH">–</span> mm høy</span>
+                        <label class="num"><input id="borderW" type="number" inputmode="decimal" min="20" aria-label="Width of the shape"><span>mm wide</span></label>
+                        <span class="hint">× <span id="borderH">–</span> mm high</span>
                     </div>
                 </div>
             </section>
 
             <section class="step">
-                <h2><span class="n">2</span>Brikker</h2>
+                <h2><span class="n">2</span>Pieces</h2>
                 <div class="range">
-                    <label class="label" for="pieceSize">Brikkestørrelse</label>
+                    <label class="label" for="pieceSize">Piece size</label>
                     <input type="range" id="pieceSize" min="15" max="60" step="1" value="30">
                     <output id="pieceOut">30 mm</output>
                 </div>
                 <div class="field">
-                    <span class="label">Stil</span>
-                    <div class="seg" id="styleSeg" role="group" aria-label="Stil på brikkene">
-                        <button type="button" data-v="classic" aria-pressed="true">Klassisk</button>
-                        <button type="button" data-v="organic" aria-pressed="false">Organisk</button>
-                        <button type="button" data-v="wild" aria-pressed="false">Vill</button>
+                    <span class="label">Style</span>
+                    <div class="seg" id="styleSeg" role="group" aria-label="Piece style">
+                        <button type="button" data-v="classic" aria-pressed="true">Classic</button>
+                        <button type="button" data-v="organic" aria-pressed="false">Organic</button>
+                        <button type="button" data-v="wild" aria-pressed="false">Wild</button>
                     </div>
                 </div>
                 <div class="range">
-                    <label class="label" for="knobSize">Knotter</label>
+                    <label class="label" for="knobSize">Knobs</label>
                     <input type="range" id="knobSize" min="8" max="18" step="1" value="13">
-                    <output id="knobOut">Vanlige</output>
+                    <output id="knobOut">Regular</output>
                 </div>
-                <button type="button" class="btn" id="variant">Ny variant</button>
+                <button type="button" class="btn" id="variant">New variant</button>
             </section>
 
             <section class="step">
-                <h2><span class="n">3</span>Figurbrikker</h2>
-                <p class="hint">Gjør en figur i bildet til en egen brikke, eller del den i flere biter som pusles for seg. Figuren sitter fast fordi omrisset har innsnevringer.</p>
+                <h2><span class="n">3</span>Figure pieces</h2>
+                <p class="hint">Turn a figure in the picture into its own piece, or split it into several pieces that form a puzzle of their own. A figure stays in place because its outline has narrow parts, and you can add knobs to lock it in.</p>
                 <div class="pickrow">
-                    <button type="button" class="btn" id="pickFromImage" disabled>Velg fra bildet</button>
-                    <button type="button" class="btn" id="drawShape">Tegn selv</button>
+                    <button type="button" class="btn" id="pickFromImage" disabled>Pick from picture</button>
+                    <button type="button" class="btn" id="drawShape">Draw it</button>
                 </div>
-                <p class="hint" id="pickHint">Velg et bilde i steg 1 for å kunne klikke ut figurer.</p>
+                <p class="hint" id="pickHint">Choose a picture in step 1 to pick figures from it.</p>
                 <div class="wlist" id="wlist"></div>
-                <p class="hint" id="whint" hidden>Dra en figur i forhåndsvisningen for å flytte den.</p>
-                <label class="linkbtn small">Last inn en figur fra SVG-fil<input type="file" id="whimsySvg" accept=".svg,image/svg+xml" hidden></label>
+                <p class="hint" id="whint" hidden>Drag a figure in the preview to move it.</p>
+                <label class="linkbtn small">Load a figure from an SVG file<input type="file" id="whimsySvg" accept=".svg,image/svg+xml" hidden></label>
             </section>
 
             <section class="step">
-                <h2><span class="n">4</span>Last ned</h2>
-                <button type="button" class="btn primary" id="download" disabled>Last ned SVG for laser</button>
-                <p class="hint">Filen er i millimeter med 0,1 mm linjer. Kryssende linjer og for små biter rettes automatisk, men se over filen før du kutter, og test gjerne i papp først.</p>
+                <h2><span class="n">4</span>Download</h2>
+                <button type="button" class="btn primary" id="download" disabled>Download SVG for laser</button>
+                <p class="hint">The file is in millimetres with 0.1 mm lines. Crossing lines and pieces that are too small are fixed automatically, but check the file before you cut, and try a test cut in cardboard first.</p>
             </section>
         </aside>
 
@@ -559,25 +559,25 @@
                 <span class="sub" id="stat-shaped"></span>
                 <span class="check" id="stat-check"></span>
                 <span class="spacer"></span>
-                <span class="busy" id="busy" hidden>Lager puslespill…</span>
+                <span class="busy" id="busy" hidden>Making puzzle…</span>
             </div>
             <div class="pickbar" id="pickbar" hidden>
                 <p id="pickMsg"></p>
                 <div class="pickctl" id="pickWand">
-                    <div class="seg" id="pickOp" role="group" aria-label="Legg til eller fjern">
-                        <button type="button" data-v="add" aria-pressed="true">Legg til</button>
-                        <button type="button" data-v="sub" aria-pressed="false">Fjern</button>
+                    <div class="seg" id="pickOp" role="group" aria-label="Add or remove">
+                        <button type="button" data-v="add" aria-pressed="true">Add</button>
+                        <button type="button" data-v="sub" aria-pressed="false">Remove</button>
                     </div>
-                    <label class="tol">Følsomhet <input type="range" id="pickTol" min="10" max="90" value="40"></label>
+                    <label class="tol">Tolerance <input type="range" id="pickTol" min="10" max="90" value="40"></label>
                 </div>
                 <div class="pickbtns">
-                    <button type="button" class="btn" id="pickCancel">Avbryt</button>
-                    <button type="button" class="btn primary" id="pickDone" disabled>Lag figurbrikke</button>
+                    <button type="button" class="btn" id="pickCancel">Cancel</button>
+                    <button type="button" class="btn primary" id="pickDone" disabled>Make figure piece</button>
                 </div>
             </div>
             <div class="stagewrap">
-                <svg id="stage" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Forhåndsvisning av puslespillet"></svg>
-                <div class="empty" id="empty" hidden>Velg en SVG-fil med formen du vil ha under «Egen form», så dukker puslespillet opp her.</div>
+                <svg id="stage" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Puzzle preview"></svg>
+                <div class="empty" id="empty" hidden>Choose an SVG file with the shape you want, and the puzzle appears here.</div>
             </div>
             <div id="warnings" aria-live="polite"></div>
         </main>

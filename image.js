@@ -30,7 +30,7 @@ function loadImageFile(file) {
             IMG.bg = detectBackground();
             resolve(IMG);
         };
-        im.onerror = () => reject(new Error("Kunne ikke lese bildet."));
+        im.onerror = () => reject(new Error("Couldn't read the picture."));
         im.src = url;
     });
 }

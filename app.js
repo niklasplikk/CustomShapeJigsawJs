@@ -207,7 +207,10 @@ function renderStage() {
     const wpaths = shapes.filter((s) => s.whimsy).map((s) => s.dCut || s.d);
     const stage = $("stage");
     const pad = Math.max(W, H) * 0.03;
-    stage.setAttribute("viewBox", [-pad, -pad, W + 2 * pad, H + 2 * pad].join(" "));
+    const base = { x: -pad, y: -pad, w: W + 2 * pad, h: H + 2 * pad };
+    if (!BASE || Math.abs(BASE.w - base.w) > 1 || Math.abs(BASE.h - base.h) > 1) VIEW = null;   // new size: show all
+    BASE = base;
+    applyView();
     let html = '<defs><clipPath id="boardclip"><path clip-rule="evenodd" d="' + boardD + '"/></clipPath></defs>';
     html += '<path class="board" fill-rule="evenodd" d="' + boardD + '"/>';
     html += '<g id="photo"></g>';
@@ -263,6 +266,7 @@ function renderStage() {
     const fixes = [];
     if (cutReport.merged) fixes.push(cutReport.merged + " small pieces merged");
     if (cutReport.fixed + cutReport.straightened) fixes.push((cutReport.fixed + cutReport.straightened) + " knobs adjusted");
+    if (cutReport.autoKnobs) fixes.push(cutReport.autoKnobs + " knobs added so every piece holds");
     chk.title = fixes.join(", ");
     $("warnings").innerHTML = warnList.map((w) => '<p class="warn">' + escapeHtml(w) + "</p>").join("");
 }
@@ -290,6 +294,117 @@ function drawEmpty() {
     $("download").disabled = true;
     $("stat-size").textContent = "–"; $("stat-pieces").textContent = ""; $("stat-shaped").textContent = ""; $("stat-check").textContent = "";
 }
+
+// ------------------------------------------------------------------ zoom and pan
+let BASE = null;   // whole puzzle, in mm
+let VIEW = null;   // current view box, or null to show the whole puzzle
+
+function applyView() {
+    if (!BASE) return;
+    const v = VIEW || BASE;
+    $("stage").setAttribute("viewBox", [v.x, v.y, v.w, v.h].join(" "));
+    const z = BASE.w / v.w;
+    $("zoomLevel").textContent = Math.round(z * 100) + "%";
+    $("stage").classList.toggle("zoomed", !!VIEW);
+}
+
+function clampView(v) {
+    const minW = BASE.w / 25;
+    if (v.w >= BASE.w * 0.999) return null;
+    if (v.w < minW) { const k = minW / v.w; v = { x: v.x - (v.w * (k - 1)) / 2, y: v.y - (v.h * (k - 1)) / 2, w: minW, h: v.h * k }; }
+    // keep part of the puzzle in view
+    v.x = Math.max(BASE.x - v.w * 0.5, Math.min(BASE.x + BASE.w - v.w * 0.5, v.x));
+    v.y = Math.max(BASE.y - v.h * 0.5, Math.min(BASE.y + BASE.h - v.h * 0.5, v.y));
+    return v;
+}
+
+// zoom by factor (>1 = in) keeping point p (mm) where it is on screen
+function zoomAt(p, factor) {
+    if (!BASE) return;
+    const v = VIEW || { x: BASE.x, y: BASE.y, w: BASE.w, h: BASE.h };
+    const w = v.w / factor, h = v.h / factor;
+    VIEW = clampView({ x: p.x - ((p.x - v.x) * w) / v.w, y: p.y - ((p.y - v.y) * h) / v.h, w: w, h: h });
+    applyView();
+}
+
+function zoomCenter(factor) {
+    const v = VIEW || BASE;
+    if (v) zoomAt({ x: v.x + v.w / 2, y: v.y + v.h / 2 }, factor);
+}
+
+function zoomFit() { VIEW = null; applyView(); }
+
+(function setupZoom() {
+    let pan = null, space = false;
+    const pointers = new Map();
+    let pinch = null;
+    const svgPerPx = () => 1 / $("stage").getScreenCTM().a;
+
+    window.addEventListener("keydown", (e) => {
+        if (e.code === "Space" && !/INPUT|TEXTAREA|SELECT|BUTTON/.test(document.activeElement.tagName)) { space = true; e.preventDefault(); }
+    });
+    window.addEventListener("keyup", (e) => { if (e.code === "Space") space = false; });
+
+    window.addEventListener("load", () => {
+        const wrap = document.querySelector(".stagewrap");
+        wrap.addEventListener("wheel", (e) => {
+            if ($("stage").hidden) return;
+            e.preventDefault();
+            const k = e.ctrlKey ? 0.012 : 0.0018;           // pinch on a trackpad comes as ctrl+wheel
+            const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+            zoomAt(stagePoint(e), Math.exp(-dy * k));
+        }, { passive: false });
+
+        wrap.addEventListener("pointerdown", (e) => {
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pointers.size === 2) {
+                // two fingers: pinch to zoom and pan; stop whatever one finger started
+                const [a, b] = [...pointers.values()];
+                pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+                if (PICK.drawing) PICK.drawing = null;
+                pan = null;
+                e.stopPropagation(); e.preventDefault();
+                return;
+            }
+            const onFigure = e.target.classList && e.target.classList.contains("wfill");
+            const wantPan = e.button === 1 || space || (!PICK.mode && VIEW && !onFigure);
+            if (!wantPan || $("stage").hidden) return;
+            pan = { x: e.clientX, y: e.clientY, v: Object.assign({}, VIEW || BASE), k: svgPerPx() };
+            $("stage").classList.add("panning");
+            e.stopPropagation(); e.preventDefault();
+        });
+        window.addEventListener("pointermove", (e) => {
+            if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (pinch && pointers.size === 2) {
+                const [a, b] = [...pointers.values()];
+                const d = Math.hypot(a.x - b.x, a.y - b.y), mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+                const k = svgPerPx();
+                if (VIEW || d / pinch.d > 1) {
+                    const v = VIEW || Object.assign({}, BASE);
+                    v.x -= (mid.x - pinch.mid.x) * k; v.y -= (mid.y - pinch.mid.y) * k;
+                    VIEW = clampView(v); applyView();
+                }
+                zoomAt(stagePoint({ clientX: mid.x, clientY: mid.y }), d / pinch.d);
+                pinch = { d: d, mid: mid };
+                return;
+            }
+            if (!pan) return;
+            VIEW = clampView({ x: pan.v.x - (e.clientX - pan.x) * pan.k, y: pan.v.y - (e.clientY - pan.y) * pan.k, w: pan.v.w, h: pan.v.h });
+            applyView();
+        });
+        const up = (e) => {
+            pointers.delete(e.pointerId);
+            if (pointers.size < 2) pinch = null;
+            if (pan) { pan = null; $("stage").classList.remove("panning"); }
+        };
+        window.addEventListener("pointerup", up);
+        window.addEventListener("pointercancel", up);
+
+        $("zoomIn").addEventListener("click", () => zoomCenter(1.5));
+        $("zoomOut").addEventListener("click", () => zoomCenter(1 / 1.5));
+        $("zoomFit").addEventListener("click", zoomFit);
+    });
+})();
 
 function stagePoint(evt) {
     const stage = $("stage");
@@ -502,7 +617,7 @@ function addImageWhimsy(d, box, edge) {
         const stage = $("stage");
         if (!stage.contains(evt.target)) return;
         if (PICK.mode === "wand") { wandClick(evt); evt.preventDefault(); return; }
-        if (PICK.mode === "plug") { plugClick(stagePoint(evt)); evt.preventDefault(); return; }
+        if (PICK.mode === "plug") { knobToolClick(stagePoint(evt)); evt.preventDefault(); return; }
         if (PICK.mode === "draw") {
             PICK.drawing = [stagePoint(evt)];
             stage.setPointerCapture(evt.pointerId);
@@ -636,7 +751,7 @@ function buildWhimsyCards() {
             card.querySelector(".stepper output").textContent = w.pieces;
             regen(0);
         }));
-        card.querySelector(".plugbtn").addEventListener("click", () => startPlugs(i));
+        card.querySelector(".plugbtn").addEventListener("click", () => { selectWhimsy(i); startKnobTool(); });
         const sm = card.querySelector("#wsmooth" + i);
         sm.addEventListener("input", () => { w.smooth = +sm.value; sm.nextElementSibling.textContent = SMOOTH_WORDS[w.smooth]; regen(); });
         const size = card.querySelector("#wsize" + i), rot = card.querySelector("#wrot" + i);
@@ -769,6 +884,8 @@ function initUI() {
     $("knobOut").textContent = knobWord(S.knob);
 
     $("variant").addEventListener("click", () => { S.seed = Math.floor(Math.random() * 9999); regen(0); });
+    $("autoKnobs").addEventListener("change", (e) => { S.autoKnobs = e.target.checked; regen(0); });
+    $("knobTool").addEventListener("click", () => { if (generated) startKnobTool(); });
 
     // SVG outline: file picker + drag and drop
     $("borderFile").addEventListener("change", (e) => {

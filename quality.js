@@ -418,6 +418,7 @@ function checkCuts() {
     const changes = [];
     extendDangling(hash, changes);
     trimToOutline(hash, changes);
+    applyEdgeKnobs(changes);
     edgeLog.forEach((e, i) => hash.addPolyline(i, edgePolyline(e)));
 
     const collides = (i) => {

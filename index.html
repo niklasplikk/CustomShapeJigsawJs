@@ -344,6 +344,14 @@
         #stage.dragging .cuts { opacity: .2; }
         #stage.picking { cursor: crosshair; }
         #stage.plugging { cursor: crosshair; }
+        #stage.zoomed { cursor: grab; }
+        #stage.zoomed.picking, #stage.zoomed.plugging { cursor: crosshair; }
+        #stage.panning, #stage.panning * { cursor: grabbing !important; }
+        .zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 9px; background: var(--field); padding: 2px; }
+        .zoom button { border: 0; background: transparent; color: var(--ink); font: 600 0.95rem var(--font-body); padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+        .zoom button:hover { background: var(--bg); }
+        .zoom span { min-width: 3.4em; text-align: center; font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+        .stagewrap { overflow: hidden; }
         #stage.plugging .wfill { cursor: crosshair; }
         #stage.plugging .wfill.sel { stroke: var(--accent); stroke-width: 3px; vector-effect: non-scaling-stroke; }
         .plugbtn { justify-self: start; font-size: 0.85rem !important; }
@@ -431,6 +439,7 @@
     <script src="image.js"></script>
     <script src="app.js"></script>
     <script src="plugs.js"></script>
+    <script src="edgeknobs.js"></script>
     <script src="export.js"></script>
     <script src="quality.js"></script>
 </head>
@@ -530,7 +539,12 @@
                     <input type="range" id="knobSize" min="8" max="18" step="1" value="13">
                     <output id="knobOut">Regular</output>
                 </div>
-                <button type="button" class="btn" id="variant">New variant</button>
+                <label class="toggle"><input type="checkbox" id="autoKnobs" checked> Add knobs to short lines, so pieces around figures hold</label>
+                <div class="pickrow">
+                    <button type="button" class="btn" id="variant">New variant</button>
+                    <button type="button" class="btn" id="knobTool">Edit knobs</button>
+                </div>
+                <p class="hint">Use “Edit knobs” to add, flip or remove the knob on any line, including the outline of a figure.</p>
             </section>
 
             <section class="step">
@@ -570,6 +584,12 @@
                 <span class="check" id="stat-check"></span>
                 <span class="spacer"></span>
                 <span class="busy" id="busy" hidden>Making puzzle…</span>
+                <div class="zoom" role="group" aria-label="Zoom">
+                    <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+                    <span id="zoomLevel">100%</span>
+                    <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+                    <button type="button" id="zoomFit">Fit</button>
+                </div>
             </div>
             <div class="pickbar" id="pickbar" hidden>
                 <p id="pickMsg"></p>

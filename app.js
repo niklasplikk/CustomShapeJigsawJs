@@ -18,6 +18,8 @@ const S = {
     knob: 13,               // knob head radius, % of piece size
     seed: Math.floor(Math.random() * 9999),
     showImage: true,
+    splits: [],             // points (mm) where the user asked to split a piece
+    autoSplit: true,        // split pieces that end up much bigger than the rest
     borderSmooth: 2,        // smoothing of the outline traced from the photo (index into SMOOTH_MM)
 };
 
@@ -297,6 +299,7 @@ function renderStage() {
     const fixes = [];
     if (cutReport.merged) fixes.push(cutReport.merged + " small pieces merged");
     if (cutReport.fixed + cutReport.straightened) fixes.push((cutReport.fixed + cutReport.straightened) + " knobs adjusted");
+    if (cutReport.splitAuto) fixes.push(cutReport.splitAuto + " oversized pieces split");
     if (cutReport.autoKnobs) fixes.push(cutReport.autoKnobs + " knobs added so every piece holds");
     chk.title = fixes.join(", ");
     $("warnings").innerHTML = warnList.map((w) => '<p class="warn">' + escapeHtml(w) + "</p>").join("");
@@ -452,7 +455,7 @@ function stageToImage(p) {
 
 // ------------------------------------------------------------------ picking shapes from the photo
 // PICK.mode: null | "wand" (click regions of the photo) | "draw" (trace an outline by hand)
-//            | "plug" (place knobs on the outline of figure PICK.figure)
+//            | "plug" (place knobs on the outline of figure PICK.figure) | "split" (split pieces)
 const PICK = { mode: null, op: "add", tol: 40, sel: null, outline: null, drawing: null, figure: -1 };
 
 function startPick(mode) {
@@ -464,11 +467,13 @@ function startPick(mode) {
         ? "Click the parts of the figure (body, head, ears …). Use “Remove” if something got in that shouldn't."
         : "Draw around the figure with your mouse or finger. Let go to close the outline.";
     $("pickDone").hidden = mode === "draw";
-    $("pickDone").disabled = mode !== "plug";
-    $("pickDone").textContent = mode === "plug" ? "Done" : "Make figure piece";
-    $("pickCancel").hidden = mode === "plug";
+    $("pickDone").disabled = mode !== "plug" && mode !== "split";
+    $("pickDone").textContent = mode === "plug" || mode === "split" ? "Done" : "Make figure piece";
+    $("pickCancel").hidden = mode === "plug" || mode === "split";
+    $("pickUndo").hidden = mode !== "split";
+    if (mode === "split") splitMessage();
     document.querySelectorAll("#pickOp button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === "add"));
-    $("stage").classList.add(mode === "plug" ? "plugging" : "picking");
+    $("stage").classList.add(mode === "plug" || mode === "split" ? "plugging" : "picking");
     document.querySelector(".preview").classList.add("picking-on");
     drawPhoto(); drawOverlay();
     $("pickbar").scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -620,6 +625,13 @@ function finishDraw() {
     endPick();
 }
 
+function splitMessage() {
+    const n = S.splits.length;
+    $("pickMsg").textContent = "Click a piece to split it in two. Click one of the halves to split it further." +
+        (n ? " (" + n + (n === 1 ? " split)" : " splits)") : "");
+    $("pickUndo").disabled = !n;
+}
+
 function nextName() {
     let n = whimsies.length + 1;
     while (whimsies.some((w) => w.name === "Figure " + n)) n++;
@@ -649,6 +661,14 @@ function addImageWhimsy(d, box, edge) {
         if (!stage.contains(evt.target)) return;
         if (PICK.mode === "wand") { wandClick(evt); evt.preventDefault(); return; }
         if (PICK.mode === "plug") { knobToolClick(stagePoint(evt)); evt.preventDefault(); return; }
+        if (PICK.mode === "split") {
+            const p = stagePoint(evt);
+            S.splits.push({ x: p.x, y: p.y });
+            splitMessage();
+            regen(0);
+            evt.preventDefault();
+            return;
+        }
         if (PICK.mode === "draw") {
             PICK.drawing = [stagePoint(evt)];
             stage.setPointerCapture(evt.pointerId);
@@ -979,7 +999,9 @@ function initUI() {
     $("pickFromImage").addEventListener("click", () => startPick("wand"));
     $("drawShape").addEventListener("click", () => startPick("draw"));
     $("pickCancel").addEventListener("click", endPick);
-    $("pickDone").addEventListener("click", () => (PICK.mode === "plug" ? endPick() : finishWand()));
+    $("pickDone").addEventListener("click", () => (PICK.mode === "plug" || PICK.mode === "split" ? endPick() : finishWand()));
+    $("pickUndo").addEventListener("click", () => { if (S.splits.length) { S.splits.pop(); splitMessage(); regen(0); } });
+    $("splitTool").addEventListener("click", () => { if (generated) startPick("split"); });
     $("pickTol").addEventListener("input", (e) => { PICK.tol = +e.target.value; });
     $("whimsySvg").addEventListener("change", (e) => {
         const f = e.target.files[0]; if (!f) return;

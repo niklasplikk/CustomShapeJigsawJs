@@ -175,19 +175,73 @@ function beforePaint(a) {
         if (!victim) break;
         const nb = shared.get(victim);
         if (!nb) { stuck.add(victim); continue; }
-        let target = 0, bestShared = -1;
+        // join the neighbour sharing the longest edge, but don't build giant pieces: prefer a
+        // neighbour that stays a normal size after the merge
+        let target = 0, bestScore = -Infinity;
         nb.forEach((n, l) => {
-            if (n > bestShared || (n === bestShared && area.get(l) < area.get(target))) { bestShared = n; target = l; }
+            if (multiLabels.has(l) !== multiLabels.has(victim)) return;
+            const tooBig = area.get(l) + vArea > 1.6 * nominal;
+            const score = n - (tooBig ? 1e6 + area.get(l) : 0);
+            if (score > bestScore) { bestScore = score; target = l; }
         });
+        if (!target) { stuck.add(victim); continue; }
         for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) if (g[i][j] === victim) g[i][j] = target;
         merged++;
     }
+
+    // split pieces that are too big (automatically), and pieces the user asked to split
+    let splitAuto = 0, splitByHand = 0;
+    const cellsOf = new Map();
+    for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) {
+        const l = g[i][j];
+        if (!l || mask[i][j]) continue;
+        if (!cellsOf.has(l)) cellsOf.set(l, []);
+        cellsOf.get(l).push([i, j]);
+    }
+    const splitLabel = (l, k) => {
+        const cells = cellsOf.get(l);
+        if (!cells || k < 2 || cells.length < 12 * k) return false;
+        const parts = cutSplit(cells, k);
+        const newOf = new Map([[0, l]]);
+        const isMulti = multiLabels.has(l);
+        parts.forEach((p, idx) => {
+            if (!newOf.has(p)) { newOf.set(p, ++maxLabel); if (isMulti) multiLabels.add(maxLabel); }
+            g[cells[idx][0]][cells[idx][1]] = newOf.get(p);
+        });
+        cellsOf.delete(l);
+        newOf.forEach((nl) => cellsOf.set(nl, []));
+        cells.forEach(([i, j]) => cellsOf.get(g[i][j]).push([i, j]));
+        return true;
+    };
+    if (S.autoSplit !== false) {
+        const side = S.piece / cell;   // a normal piece's size, in cells
+        [...cellsOf.keys()].forEach((l) => {
+            if (multiLabels.has(l)) return;
+            const cells = cellsOf.get(l), A = cells.length;
+            // too big, or too long (a strip that winds around a figure)
+            let r0 = Infinity, r1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+            cells.forEach(([i, j]) => { r0 = Math.min(r0, i); r1 = Math.max(r1, i); c0 = Math.min(c0, j); c1 = Math.max(c1, j); });
+            const extent = Math.max(r1 - r0, c1 - c0) + 1;
+            const k = Math.max(Math.round(A / nominal), Math.round(extent / (1.5 * side)));
+            if ((A > 1.8 * nominal || extent > 2.3 * side) && splitLabel(l, Math.min(4, Math.max(2, k)))) splitAuto++;
+        });
+    }
+    // by hand: every click on a piece adds one cut to it
+    const clicks = new Map();
+    (S.splits || []).forEach((p) => {
+        const r = Math.floor(p.y / cell), c = Math.floor(p.x / cell);
+        if (r < 0 || c < 0 || r >= R || c >= C) return;
+        const l = g[r][c];
+        if (!l || mask[r][c]) return;
+        clicks.set(l, (clicks.get(l) || 0) + 1);
+    });
+    clicks.forEach((n, l) => { if (splitLabel(l, n + 1)) splitByHand += n; });
 
     const labels = new Set();
     for (let i = 0; i < R; i++) for (let j = 0; j < C; j++) if (g[i][j] && !mask[i][j]) labels.add(g[i][j]);
     // the engine adds one piece per shaped piece afterwards; split shapes are already counted
     $("piececount").innerHTML = labels.size - multiCount;
-    cutReport = { merged: merged, filled: filled, fixed: 0, straightened: 0, crossings: [] };
+    cutReport = { merged: merged, filled: filled, fixed: 0, straightened: 0, crossings: [], splitAuto: splitAuto, splitByHand: splitByHand };
 }
 
 // ------------------------------------------------------------------ 2. crossing lines

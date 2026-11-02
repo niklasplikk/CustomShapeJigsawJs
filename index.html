@@ -370,6 +370,7 @@
         .pickbtns { display: flex; gap: 8px; }
         .pickbtns .btn.primary { font-size: 0.95rem; padding: 10px 14px; }
         .pickrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .pickrow > :nth-child(3):last-child { grid-column: 1 / -1; }
         .btn:disabled { opacity: .5; cursor: default; }
         .seg button:disabled { opacity: .45; cursor: default; }
         .linkbtn.small { font-size: 0.85rem; align-self: flex-start; }
@@ -543,8 +544,9 @@
                 <div class="pickrow">
                     <button type="button" class="btn" id="variant">New variant</button>
                     <button type="button" class="btn" id="knobTool">Edit knobs</button>
+                    <button type="button" class="btn" id="splitTool">Split a piece</button>
                 </div>
-                <p class="hint">Use “Edit knobs” to add, flip or remove the knob on any line, including the outline of a figure.</p>
+                <p class="hint">“Edit knobs” adds, flips or removes the knob on any line, including the outline of a figure. “Split a piece” cuts a piece in two where you click. Pieces much bigger than the rest are split automatically.</p>
             </section>
 
             <section class="step">
@@ -602,6 +604,7 @@
                     <label class="tol">Tolerance <input type="range" id="pickTol" min="10" max="90" value="40"></label>
                 </div>
                 <div class="pickbtns">
+                    <button type="button" class="btn" id="pickUndo" hidden>Undo</button>
                     <button type="button" class="btn" id="pickCancel">Cancel</button>
                     <button type="button" class="btn primary" id="pickDone" disabled>Make figure piece</button>
                 </div>

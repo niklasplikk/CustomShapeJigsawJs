@@ -241,12 +241,37 @@ function wandAt(px, py, tol) {
     return flood([y * W + x], (i) => cdist(colAt(i), seed) < tol, W, H);
 }
 
+// Sizes of the 4-connected parts of a mask, biggest first.
+function componentSizes(m, W, H) {
+    const lab = new Uint8Array(W * H), stack = new Int32Array(W * H), sizes = [];
+    for (let s0 = 0; s0 < W * H; s0++) {
+        if (!m[s0] || lab[s0]) continue;
+        let sp = 0, size = 0;
+        lab[s0] = 1; stack[sp++] = s0;
+        while (sp) {
+            const i = stack[--sp], x = i % W; size++;
+            const nb = [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i >= W ? i - W : -1, i < W * (H - 1) ? i + W : -1];
+            for (const q of nb) if (q >= 0 && m[q] && !lab[q]) { lab[q] = 1; stack[sp++] = q; }
+        }
+        sizes.push(size);
+    }
+    return sizes.sort((a, b) => b - a);
+}
+
 // Turn the clicked regions into one solid figure: bridge the dark drawing lines between
-// regions, fill holes, keep the biggest part and grow it to include the outer contour line.
+// regions, fill holes and grow it to include the outer contour line. Parts the user clicked
+// that are still apart (a wing behind a textured body, blocks split by thick lines) are joined
+// by bridging further, step by step, until everything clicked hangs together.
 function finishSelection(sel) {
     const W = IMG.pw, H = IMG.ph, big = Math.max(W, H);
-    let m = closeMask(sel, Math.max(2, Math.round(big * 0.012)), W, H);
-    m = fillHoles(m, W, H);
+    const total = maskArea(sel);
+    let r = Math.max(2, Math.round(big * 0.012)), m = null;
+    for (let step = 0; step < 6; step++) {
+        m = fillHoles(closeMask(sel, r, W, H), W, H);
+        const parts = componentSizes(m, W, H).filter((n) => n >= 0.04 * total);
+        if (parts.length <= 1) break;
+        r = Math.round(r * 1.5);
+    }
     m = largestComponent(m, W, H).mask;
     m = dilate(m, Math.max(1, Math.round(big * 0.004)), W, H);
     m = fillHoles(m, W, H);

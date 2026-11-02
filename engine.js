@@ -893,7 +893,7 @@
                 if (w.y === null) w.y = customborder.height / 2;
                 var s = (w.engineW || w.width) / w.w0;
                 var g = document.createElementNS(ns, "g");
-                g.setAttribute("transform", "translate(" + w.x + "," + w.y + ") rotate(" + w.rot + ") scale(" + s + ") translate(" + (-w.w0 / 2) + "," + (-w.h0 / 2) + ")");
+                g.setAttribute("transform", "translate(" + (w.x + (w.ox || 0)) + "," + (w.y + (w.oy || 0)) + ") rotate(" + w.rot + ") scale(" + s + ") translate(" + (-w.w0 / 2) + "," + (-w.h0 / 2) + ")");
                 var p = document.createElementNS(ns, "path");
                 p.setAttribute("d", w.d);
                 p.setAttribute("stroke", "black");

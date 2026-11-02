@@ -331,3 +331,38 @@ function smoothClosedPath(d, sigma, eps) {
     smoothCache.set(key, out);
     return out;
 }
+
+// ------------------------------------------------------------------ growing / shrinking outlines
+// Rasterises a closed outline (any units), grows it by delta units (negative shrinks) and traces it
+// again. pxPerUnit sets the raster resolution. Returns a d string in the same units, or null.
+function offsetOutlineMask(d, delta, pxPerUnit) {
+    const holder = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    holder.setAttribute("style", "position:absolute;left:-100000px;top:0");
+    document.body.appendChild(holder);
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", d);
+    holder.appendChild(p);
+    const bb = p.getBBox();
+    document.body.removeChild(holder);
+    const pad = Math.max(0, delta) + 3 / pxPerUnit;
+    const W = Math.ceil((bb.width + 2 * pad) * pxPerUnit), H = Math.ceil((bb.height + 2 * pad) * pxPerUnit);
+    if (W * H > 9e6 || W < 4 || H < 4) return null;
+    const cv = document.createElement("canvas");
+    cv.width = W; cv.height = H;
+    const cx = cv.getContext("2d");
+    cx.setTransform(pxPerUnit, 0, 0, pxPerUnit, (pad - bb.x) * pxPerUnit, (pad - bb.y) * pxPerUnit);
+    cx.fillStyle = "#000";
+    cx.fill(new Path2D(d));
+    const data = cx.getImageData(0, 0, W, H).data;
+    let m = new Uint8Array(W * H);
+    for (let i = 0; i < m.length; i++) m[i] = data[i * 4 + 3] > 127 ? 1 : 0;
+    const r = Math.abs(delta) * pxPerUnit;
+    if (delta > 0) m = dilate(m, r, W, H); else if (delta < 0) m = erode(m, r, W, H);
+    m = largestComponent(m, W, H).mask;
+    let pts = traceMask(m, W, H);
+    if (pts.length < 8) return null;
+    pts = simplifyRDP(pts.concat([pts[0]]), 0.6).slice(0, -1);
+    pts = chaikin(pts, 2);
+    const back = (q) => ({ x: q.x / pxPerUnit + bb.x - pad, y: q.y / pxPerUnit + bb.y - pad });
+    return "M " + pts.map((q) => { const b = back(q); return b.x.toFixed(3) + " " + b.y.toFixed(3); }).join(" L ") + " Z";
+}

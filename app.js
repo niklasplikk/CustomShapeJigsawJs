@@ -5,6 +5,7 @@
 const NS = "http://www.w3.org/2000/svg";
 const STYLE_NOISE = { classic: 0.12, organic: 0.5, wild: 0.9 };
 const SMOOTH_WORDS = ["Off", "Light", "Medium", "Strong"];
+const padText = (v) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1).replace(".0", "") + " mm";
 
 const S = {
     shape: "rect",          // "rect" | "image" (outline traced from the photo) | "svg"
@@ -102,20 +103,58 @@ function imageBorderSvg() {
 function applySmoothing(w) {
     if (!w.dRaw) { w.dRaw = w.d; w.w0Raw = w.w0; w.h0Raw = w.h0; w.solidRaw = w.solidity; }
     if (w.smooth === undefined) w.smooth = 1;
+    if (w.pad === undefined) w.pad = 0;
     const level = SMOOTH_MM[w.smooth] || 0;
-    if (!level || !(w.width > 0)) {
-        w.d = w.dRaw; w.w0 = w.w0Raw; w.h0 = w.h0Raw; w.solidity = w.solidRaw; w.engineW = w.width;
-        w.smoothKey = null;
-        return;
-    }
+    if (!(w.width > 0)) return;
     const mmPerUnit = w.width / w.w0Raw;
-    const key = w.smooth + ":" + mmPerUnit.toFixed(3);
+    const key = w.smooth + ":" + w.pad + ":" + mmPerUnit.toFixed(4) + ":" + (w.anchor ? S.shape + S.imgW + ":" + S.piece : "");
     if (w.smoothKey !== key) {
-        const sh = normaliseWhimsy(smoothClosedPath(w.dRaw, level / mmPerUnit, 0.05 / mmPerUnit));
+        // all work happens in the raw outline's own units, with its box at (0, 0)
+        let d = w.dRaw, edge = w.edge;
+        if (w.pad) {
+            const grown = w.anchor && IMG.url && imageMap() ? padFromPicture(w, mmPerUnit) : null;
+            if (grown) { d = grown.d; edge = grown.edge; }
+            else d = offsetOutlineMask(w.dRaw, w.pad / mmPerUnit, mmPerUnit / 0.25) || w.dRaw;
+        } else if (w.edge0 !== undefined) {
+            edge = w.edge0;
+        }
+        if (level) d = smoothClosedPath(d, level / mmPerUnit, 0.05 / mmPerUnit);
+        const p = tmpPath(d), bb = p.getBBox();
+        p.remove();
+        const sh = normaliseWhimsy(d);
         w.d = sh.d; w.w0 = sh.w0; w.h0 = sh.h0; w.solidity = sh.solidity;
+        w.edge = edge;
+        // how far the centre moved from the raw outline's centre, in mm (growing against the
+        // puzzle's edge is lopsided, for one)
+        const dx = (bb.x + bb.width / 2 - w.w0Raw / 2) * mmPerUnit, dy = (bb.y + bb.height / 2 - w.h0Raw / 2) * mmPerUnit;
+        const a = ((w.rot || 0) * Math.PI) / 180;
+        w.ox = dx * Math.cos(a) - dy * Math.sin(a);
+        w.oy = dx * Math.sin(a) + dy * Math.cos(a);
         w.smoothKey = key;
     }
     w.engineW = w.width * w.w0 / w.w0Raw;
+}
+
+// Grows or shrinks a figure picked from the picture on the picture's own grid, so that it is
+// clipped to the puzzle and fills narrow gaps to its edge just like when it was picked.
+function padFromPicture(w, mmPerUnit) {
+    const m = imageMap();
+    const ox = w.anchor.cx - w.w0Raw / 2, oy = w.anchor.cy - w.h0Raw / 2;   // raw outline -> picture px
+    const cv = document.createElement("canvas");
+    cv.width = IMG.pw; cv.height = IMG.ph;
+    const cx = cv.getContext("2d");
+    cx.setTransform(1 / IMG.k, 0, 0, 1 / IMG.k, ox / IMG.k, oy / IMG.k);
+    cx.fillStyle = "#000";
+    cx.fill(new Path2D(w.dRaw));
+    const data = cx.getImageData(0, 0, IMG.pw, IMG.ph).data;
+    let mask = new Uint8Array(IMG.pw * IMG.ph);
+    for (let i = 0; i < mask.length; i++) mask[i] = data[i * 4 + 3] > 127 ? 1 : 0;
+    const r = Math.abs(w.pad) / (m.s * IMG.k);
+    if (w.pad > 0) mask = dilate(mask, r, IMG.pw, IMG.ph); else mask = erode(mask, r, IMG.pw, IMG.ph);
+    const c = clipToBoard(mask), o = maskToOutline(c.mask);
+    if (!o) return null;
+    const d = "M " + o.pts.map((q) => (q.x - ox).toFixed(2) + " " + (q.y - oy).toFixed(2)).join(" L ") + " Z";
+    return { d: d, edge: c.edge };
 }
 
 // Size of the puzzle outline in mm (before the engine's half-cell offset).
@@ -242,15 +281,6 @@ function renderStage() {
         regen(0);
         return;
     }
-
-    // figures that follow the picture get their size from it; show it on their cards
-    whimsies.forEach((w, i) => {
-        const r = $("wsize" + i);
-        if (!r || r === document.activeElement) return;
-        const v = Math.round(w.width || 0);
-        r.value = v;
-        r.nextElementSibling.textContent = v + " mm";
-    });
 
     const warnList = $("whimsywarn").innerText.trim().split("\n").filter(Boolean).map((w) => w.replace(/^⚠\s*/, ""));
     const n = cutReport.crossings.length;
@@ -602,7 +632,7 @@ function addImageWhimsy(d, box, edge) {
     whimsies.push({
         name: nextName(), d: shape.d, w0: shape.w0, h0: shape.h0, solidity: shape.solidity,
         anchor: { cx: box.x + box.w / 2, cy: box.y + box.h / 2, wpx: box.w },
-        edge: !!edge,
+        edge: !!edge, edge0: !!edge,
         x: 0, y: 0, width: 0, rot: 0, pieces: suggested,
     });
     selectedWhimsy = whimsies.length - 1;
@@ -737,8 +767,10 @@ function buildWhimsyCards() {
             '<div class="row"><span>Knobs</span><button type="button" class="btn small plugbtn">' +
             ((w.plugs || []).length ? (w.plugs.length + " · edit") : "Add") + "</button><span></span></div>" +
             '<label class="row"><span>Smoothing</span><input type="range" min="0" max="3" step="1" value="' + (w.smooth === undefined ? 1 : w.smooth) + '" id="wsmooth' + i + '"><output>' + SMOOTH_WORDS[w.smooth === undefined ? 1 : w.smooth] + "</output></label>" +
+            '<label class="row"><span>Edge</span><input type="range" min="-3" max="6" step="0.5" value="' + (w.pad || 0) + '" id="wpad' + i + '"><output>' + padText(w.pad || 0) + "</output></label>" +
+            (w.anchor ? "" :
             '<label class="row"><span>Size</span><input type="range" min="15" max="400" step="1" value="' + width + '" id="wsize' + i + '"><output>' + width + " mm</output></label>" +
-            '<label class="row"><span>Rotation</span><input type="range" min="-180" max="180" step="5" value="' + w.rot + '" id="wrot' + i + '"><output>' + w.rot + "°</output></label>";
+            '<label class="row"><span>Rotation</span><input type="range" min="-180" max="180" step="5" value="' + w.rot + '" id="wrot' + i + '"><output>' + w.rot + "°</output></label>");
         card.addEventListener("pointerdown", () => selectWhimsy(i));
         card.querySelector(".icon").addEventListener("click", () => {
             whimsies.splice(i, 1);
@@ -754,10 +786,12 @@ function buildWhimsyCards() {
         card.querySelector(".plugbtn").addEventListener("click", () => { selectWhimsy(i); startKnobTool(); });
         const sm = card.querySelector("#wsmooth" + i);
         sm.addEventListener("input", () => { w.smooth = +sm.value; sm.nextElementSibling.textContent = SMOOTH_WORDS[w.smooth]; regen(); });
+        const pad = card.querySelector("#wpad" + i);
+        pad.addEventListener("input", () => { w.pad = +pad.value; pad.nextElementSibling.textContent = padText(w.pad); regen(); });
         const size = card.querySelector("#wsize" + i), rot = card.querySelector("#wrot" + i);
-        const detach = () => { if (w.anchor) { delete w.anchor; const c = card.querySelector(".chip.anchor"); if (c) c.remove(); } };
-        size.addEventListener("input", () => { detach(); w.width = +size.value; size.nextElementSibling.textContent = size.value + " mm"; regen(); });
-        rot.addEventListener("input", () => { detach(); w.rot = +rot.value; rot.nextElementSibling.textContent = rot.value + "°"; regen(); });
+        const detach = () => {};
+        if (size) size.addEventListener("input", () => { detach(); w.width = +size.value; size.nextElementSibling.textContent = size.value + " mm"; regen(); });
+        if (rot) rot.addEventListener("input", () => { detach(); w.rot = +rot.value; rot.nextElementSibling.textContent = rot.value + "°"; regen(); });
         list.appendChild(card);
     });
     $("whint").hidden = !whimsies.length;

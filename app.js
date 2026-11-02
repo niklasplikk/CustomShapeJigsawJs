@@ -227,6 +227,7 @@ function regen(delay) {
             mergeEdgeFigures();
             generated = true;
             renderStage();
+            scheduleAutosave();
         } catch (e) {
             console.error(e);
             $("warnings").innerHTML = '<p class="warn">Something went wrong while making the puzzle: ' + escapeHtml(String(e.message || e)) + "</p>";
@@ -988,7 +989,7 @@ function initUI() {
     $("photoToggle").addEventListener("change", (e) => { S.showImage = e.target.checked; if (generated) drawPhoto(); });
     $("photoRemove").addEventListener("click", () => {
         if (IMG.url) URL.revokeObjectURL(IMG.url);
-        IMG.url = null; IMG.bg = null;
+        IMG.url = null; IMG.bg = null; IMG.file = null; IMG.name = "";
         whimsies.forEach((w) => { delete w.anchor; });
         updateImageUI();
         buildWhimsyCards();

@@ -24,7 +24,7 @@ function loadImageFile(file) {
             cx.drawImage(im, 0, 0, pw, ph);
             if (IMG.url) URL.revokeObjectURL(IMG.url);
             Object.assign(IMG, {
-                url: url, name: file.name, w: im.naturalWidth, h: im.naturalHeight,
+                url: url, file: file, name: file.name, w: im.naturalWidth, h: im.naturalHeight,
                 pw: pw, ph: ph, k: im.naturalWidth / pw, rgb: cx.getImageData(0, 0, pw, ph).data, bg: null,
             });
             IMG.bg = detectBackground();

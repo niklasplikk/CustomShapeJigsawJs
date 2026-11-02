@@ -369,6 +369,14 @@
         .tol input { width: 110px; }
         .pickbtns { display: flex; gap: 8px; }
         .pickbtns .btn.primary { font-size: 0.95rem; padding: 10px 14px; }
+        .projectbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+        .projectbar .btn.small { font-size: 0.85rem; padding: 6px 12px; }
+        .projectbar .hint { font-size: 0.8rem; }
+        .resume { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--accent);
+            border-radius: 10px; padding: 10px 12px; background: var(--field); font-size: 0.9rem; }
+        .resumebtns { display: flex; gap: 8px; }
+        .resume .btn.small { font-size: 0.85rem; padding: 6px 12px; }
+        .resume .btn.primary { font-size: 0.85rem; }
         .pickrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .pickrow > :nth-child(3):last-child { grid-column: 1 / -1; }
         .btn:disabled { opacity: .5; cursor: default; }
@@ -442,6 +450,7 @@
     <script src="plugs.js"></script>
     <script src="edgeknobs.js"></script>
     <script src="export.js"></script>
+    <script src="project.js"></script>
     <script src="quality.js"></script>
 </head>
 
@@ -451,6 +460,18 @@
             <header class="brand">
                 <h1>Jigsaw Workshop</h1>
                 <p>Make laser-ready wooden jigsaw puzzles with your own shape and figure pieces.</p>
+                <div class="projectbar">
+                    <label class="btn small">Open project…<input type="file" id="openProject" accept=".jigsaw,application/json" hidden></label>
+                    <button type="button" class="btn small" id="saveProject">Save project</button>
+                    <span class="hint" id="projectStatus"></span>
+                </div>
+                <div class="resume" id="resumeBar" hidden>
+                    <span id="resumeText"></span>
+                    <div class="resumebtns">
+                        <button type="button" class="btn small primary" id="resumeYes">Continue</button>
+                        <button type="button" class="btn small" id="resumeNo">Start new</button>
+                    </div>
+                </div>
             </header>
 
             <section class="step">

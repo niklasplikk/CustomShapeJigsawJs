@@ -539,7 +539,7 @@
                     <input type="range" id="knobSize" min="8" max="18" step="1" value="13">
                     <output id="knobOut">Regular</output>
                 </div>
-                <label class="toggle"><input type="checkbox" id="autoKnobs" checked> Add knobs to short lines, so pieces around figures hold</label>
+                <label class="toggle"><input type="checkbox" id="autoKnobs" checked> Add knobs to short lines between pieces</label>
                 <div class="pickrow">
                     <button type="button" class="btn" id="variant">New variant</button>
                     <button type="button" class="btn" id="knobTool">Edit knobs</button>
@@ -556,6 +556,7 @@
                 </div>
                 <p class="hint" id="pickHint">Choose a picture in step 1 to pick figures from it.</p>
                 <div class="wlist" id="wlist"></div>
+                <label class="toggle"><input type="checkbox" id="autoFigureKnobs"> Add knobs on figure outlines automatically</label>
                 <p class="hint" id="whint" hidden>Drag a figure in the preview to move it.</p>
                 <label class="linkbtn small">Load a figure from an SVG file<input type="file" id="whimsySvg" accept=".svg,image/svg+xml" hidden></label>
             </section>

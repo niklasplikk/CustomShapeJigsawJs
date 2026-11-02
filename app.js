@@ -919,6 +919,7 @@ function initUI() {
 
     $("variant").addEventListener("click", () => { S.seed = Math.floor(Math.random() * 9999); regen(0); });
     $("autoKnobs").addEventListener("change", (e) => { S.autoKnobs = e.target.checked; regen(0); });
+    $("autoFigureKnobs").addEventListener("change", (e) => { S.autoFigureKnobs = e.target.checked; regen(0); });
     $("knobTool").addEventListener("click", () => { if (generated) startKnobTool(); });
 
     // SVG outline: file picker + drag and drop

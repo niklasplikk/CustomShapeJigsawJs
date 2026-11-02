@@ -7,7 +7,8 @@
 //    through that point after the puzzle is made.
 
 S.edgeKnobs = [];        // [{x, y, on, hx, hy, flipped}]
-S.autoKnobs = true;
+S.autoKnobs = true;          // knobs on short lines between ordinary pieces
+S.autoFigureKnobs = false;   // knobs on figure outlines, only when asked for
 
 // smallest knob radius that holds up in 3 mm plywood, and the last-resort size
 const MIN_KNOB = 2.5, MIN_KNOB_LAST = 1.8;

@@ -73,7 +73,7 @@ function applyPlugs() {
         const w = whimsies[s.wi];
         s.dBase = s.d;
         if (!w) return;
-        s.autoPlugs = S.autoKnobs ? autoPlugsFor(s, w) : [];
+        s.autoPlugs = S.autoFigureKnobs ? autoPlugsFor(s, w) : [];
         const all = (w.plugs || []).concat(s.autoPlugs);
         if (!all.length) return;
         const res = outlineWithPlugs(s.d, all);

@@ -22,6 +22,25 @@ function afterSeed(a) {
     multiInfo = [];
     const cell = parseFloat($("cell_scale").value);
     const R = a.rows, C = a.columns;
+
+    // The engine decides what is inside a figure by flood-filling from its outline. Where the
+    // outline nearly touches itself (the neck of an ear), part of the inside gets taken for
+    // outside and ordinary pieces grow into it. Mark everything inside each figure as figure.
+    whimsies.forEach((w, wi) => {
+        const path = document.getElementById("whimsy-" + wi);
+        if (!path) return;
+        const bb = path.getBBox();
+        const r0 = Math.max(0, Math.floor(bb.y / cell) - 1), r1 = Math.min(R - 1, Math.ceil((bb.y + bb.height) / cell) + 1);
+        const c0 = Math.max(0, Math.floor(bb.x / cell) - 1), c1 = Math.min(C - 1, Math.ceil((bb.x + bb.width) / cell) + 1);
+        for (let i = r0; i <= r1; i++) for (let j = c0; j <= c1; j++) {
+            if (a.maskgrid[i][j] || a.borderdistgrid[i][j]) continue;
+            if (!path.isPointInFill(new DOMPoint(j * cell + cell / 2, i * cell + cell / 2))) continue;
+            a.maskgrid[i][j] = 1;
+            a.grid[i][j] = 0;
+        }
+    });
+    a.seedpoints = a.seedpoints.filter((sp) => !a.maskgrid[sp.row][sp.col]);
+
     let next = a.seedpoints.reduce((m, s) => Math.max(m, s.val), 0) + 1;
     whimsies.forEach((w, wi) => {
         const n = Math.max(1, Math.min(8, w.pieces || 1));
@@ -44,6 +63,28 @@ function afterSeed(a) {
             if (!path.isPointInFill(new DOMPoint(j * cell + cell / 2, i * cell + cell / 2))) continue;
             cells.push([i, j]);
         }
+        // Narrow parts (an ear, a tail) can cut the inside into separate islands. Only big islands
+        // are opened up; small ones stay part of the figure and end up on the piece next to them.
+        const key = (i, j) => i * C + j, inSet = new Set(cells.map(([i, j]) => key(i, j)));
+        const seen = new Set(), comps = [];
+        cells.forEach(([i, j]) => {
+            if (seen.has(key(i, j))) return;
+            const comp = [[i, j]];
+            seen.add(key(i, j));
+            for (let k = 0; k < comp.length; k++) {
+                const [ci, cj] = comp[k];
+                [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([di, dj]) => {
+                    const kk = key(ci + di, cj + dj);
+                    if (inSet.has(kk) && !seen.has(kk)) { seen.add(kk); comp.push([ci + di, cj + dj]); }
+                });
+            }
+            comps.push(comp);
+        });
+        comps.sort((p, q) => q.length - p.length);
+        const minIsland = Math.max(6, (0.5 * cells.length) / n);
+        const kept = comps.filter((c, k) => k === 0 || c.length >= minIsland);
+        cells.length = 0;
+        kept.forEach((c) => c.forEach((p) => cells.push(p)));
         if (cells.length < n * 6) return;
         cells.forEach(([i, j]) => { a.maskgrid[i][j] = 0; a.grid[i][j] = 0; });
 

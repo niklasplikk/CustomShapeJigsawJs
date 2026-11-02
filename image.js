@@ -288,3 +288,46 @@ function maskOverlayURL(m, rgba) {
     cx.putImageData(im, 0, 0);
     return cv.toDataURL();
 }
+
+// ------------------------------------------------------------------ smoothing outlines
+// Gaussian smoothing of a closed outline. sigma is in the outline's own units; the result is
+// resampled evenly and thinned out again. Used to take the shake out of hand-drawn and traced
+// outlines before they are cut.
+const SMOOTH_MM = [0, 0.7, 1.5, 3];   // Av, Lett, Middels, Mye
+const smoothCache = new Map();
+
+function smoothClosedPath(d, sigma, eps) {
+    if (!(sigma > 0)) return d;
+    const key = d.length + ":" + d.slice(0, 60) + ":" + d.slice(-60) + ":" + sigma.toFixed(4);
+    if (smoothCache.has(key)) return smoothCache.get(key);
+    const holder = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    holder.setAttribute("style", "position:absolute;left:-100000px;top:0");
+    document.body.appendChild(holder);
+    const subs = d.split(/(?=M)/).filter((x) => x.trim());
+    const out = subs.map((sub) => {
+        const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        p.setAttribute("d", sub);
+        holder.appendChild(p);
+        const T = p.getTotalLength();
+        const ds = Math.max(sigma / 3, T / 5000);
+        const n = Math.max(12, Math.round(T / ds));
+        const pts = [];
+        for (let i = 0; i < n; i++) { const q = p.getPointAtLength((T * i) / n); pts.push({ x: q.x, y: q.y }); }
+        const sig = sigma / (T / n), R = Math.ceil(3 * sig);
+        if (R < 1 || n < 2 * R + 3) return sub;
+        const kern = [];
+        let ksum = 0;
+        for (let k = -R; k <= R; k++) { const v = Math.exp(-(k * k) / (2 * sig * sig)); kern.push(v); ksum += v; }
+        const sm = pts.map((_, i) => {
+            let x = 0, y = 0;
+            for (let k = -R; k <= R; k++) { const q = pts[(i + k + n) % n], wt = kern[k + R]; x += q.x * wt; y += q.y * wt; }
+            return { x: x / ksum, y: y / ksum };
+        });
+        const thin = simplifyRDP(sm.concat([sm[0]]), eps).slice(0, -1);
+        return "M " + thin.map((q) => q.x.toFixed(3) + " " + q.y.toFixed(3)).join(" L ") + " Z";
+    }).join(" ");
+    document.body.removeChild(holder);
+    if (smoothCache.size > 200) smoothCache.clear();
+    smoothCache.set(key, out);
+    return out;
+}

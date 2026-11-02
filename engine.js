@@ -891,7 +891,7 @@
             whimsies.forEach((w) => {
                 if (w.x === null) w.x = customborder.width / 2;
                 if (w.y === null) w.y = customborder.height / 2;
-                var s = w.width / w.w0;
+                var s = (w.engineW || w.width) / w.w0;
                 var g = document.createElementNS(ns, "g");
                 g.setAttribute("transform", "translate(" + w.x + "," + w.y + ") rotate(" + w.rot + ") scale(" + s + ") translate(" + (-w.w0 / 2) + "," + (-w.h0 / 2) + ")");
                 var p = document.createElementNS(ns, "path");

@@ -4,6 +4,8 @@
 
 const NS = "http://www.w3.org/2000/svg";
 const STYLE_NOISE = { classic: 0.12, organic: 0.5, wild: 0.9 };
+const SMOOTH_WORDS = ["Av", "Lett", "Middels", "Mye"];
+
 const S = {
     shape: "rect",          // "rect" | "image" (outline traced from the photo) | "svg"
     w: 300, h: 200,         // rectangle size, mm
@@ -15,6 +17,7 @@ const S = {
     knob: 13,               // knob head radius, % of piece size
     seed: Math.floor(Math.random() * 9999),
     showImage: true,
+    borderSmooth: 2,        // smoothing of the outline traced from the photo (index into SMOOTH_MM)
 };
 
 let generated = false;
@@ -87,8 +90,32 @@ function rectBorderSvgFor(w, h) {
 }
 
 function imageBorderSvg() {
+    const mmPerPx = S.imgW / IMG.bg.box.w;
+    const d = smoothClosedPath(IMG.bg.d, SMOOTH_MM[S.borderSmooth] / mmPerPx, 0.05 / mmPerPx);
     return new DOMParser().parseFromString('<svg xmlns="http://www.w3.org/2000/svg" width="' + IMG.w + '" height="' + IMG.h +
-        '" viewBox="0 0 ' + IMG.w + " " + IMG.h + '"><path d="' + IMG.bg.d + '"/></svg>', "image/svg+xml").getElementsByTagName("svg")[0];
+        '" viewBox="0 0 ' + IMG.w + " " + IMG.h + '"><path d="' + d + '"/></svg>', "image/svg+xml").getElementsByTagName("svg")[0];
+}
+
+// Figures keep their outline as picked/drawn in dRaw (with w0Raw/h0Raw); d/w0/h0 is the smoothed
+// version the engine cuts. w.width always means the width of the raw outline, so smoothing never
+// changes the figure's size; the engine scales by engineW / w0 instead.
+function applySmoothing(w) {
+    if (!w.dRaw) { w.dRaw = w.d; w.w0Raw = w.w0; w.h0Raw = w.h0; w.solidRaw = w.solidity; }
+    if (w.smooth === undefined) w.smooth = 1;
+    const level = SMOOTH_MM[w.smooth] || 0;
+    if (!level || !(w.width > 0)) {
+        w.d = w.dRaw; w.w0 = w.w0Raw; w.h0 = w.h0Raw; w.solidity = w.solidRaw; w.engineW = w.width;
+        w.smoothKey = null;
+        return;
+    }
+    const mmPerUnit = w.width / w.w0Raw;
+    const key = w.smooth + ":" + mmPerUnit.toFixed(3);
+    if (w.smoothKey !== key) {
+        const sh = normaliseWhimsy(smoothClosedPath(w.dRaw, level / mmPerUnit, 0.05 / mmPerUnit));
+        w.d = sh.d; w.w0 = sh.w0; w.h0 = sh.h0; w.solidity = sh.solidity;
+        w.smoothKey = key;
+    }
+    w.engineW = w.width * w.w0 / w.w0Raw;
 }
 
 // Size of the puzzle outline in mm (before the engine's half-cell offset).
@@ -139,6 +166,7 @@ function syncEngine() {
         w.y = w.anchor.cy * m.s + m.oy;
         w.width = w.anchor.wpx * m.s;
     });
+    whimsies.forEach(applySmoothing);
 }
 
 // ------------------------------------------------------------------ generate
@@ -420,7 +448,7 @@ function finishDraw() {
         const data = cx.getImageData(0, 0, IMG.pw, IMG.ph).data, mask = new Uint8Array(IMG.pw * IMG.ph);
         for (let k = 0; k < mask.length; k++) mask[k] = data[k * 4 + 3] > 127 ? 1 : 0;
         const c = clipToBoard(mask), o = maskToOutline(c.mask);
-        if (o) addImageWhimsy(o.d, o.box, c.edge);
+        if (o) { addImageWhimsy(o.d, o.box, c.edge); whimsies[whimsies.length - 1].smooth = 2; buildWhimsyCards(); }
     } else {
         const h = half();
         const mm = pts.map((q) => ({ x: q.x - h, y: q.y - h }));
@@ -429,7 +457,7 @@ function finishDraw() {
         const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
         const shape = normaliseWhimsy(d);
         whimsies.push({ name: nextName(), d: shape.d, w0: shape.w0, h0: shape.h0, solidity: shape.solidity,
-            x: (x0 + x1) / 2, y: (y0 + y1) / 2, width: x1 - x0, rot: 0, pieces: 1 });
+            x: (x0 + x1) / 2, y: (y0 + y1) / 2, width: x1 - x0, rot: 0, pieces: 1, smooth: 2 });
         selectedWhimsy = whimsies.length - 1;
         buildWhimsyCards();
         regen(0);
@@ -584,6 +612,7 @@ function buildWhimsyCards() {
             '<button type="button" class="btn small" data-d="1" aria-label="Flere biter">+</button></div><span></span></div>' +
             '<div class="row"><span>Knotter</span><button type="button" class="btn small plugbtn">' +
             ((w.plugs || []).length ? (w.plugs.length + " · endre") : "Legg til") + "</button><span></span></div>" +
+            '<label class="row"><span>Glatthet</span><input type="range" min="0" max="3" step="1" value="' + (w.smooth === undefined ? 1 : w.smooth) + '" id="wsmooth' + i + '"><output>' + SMOOTH_WORDS[w.smooth === undefined ? 1 : w.smooth] + "</output></label>" +
             '<label class="row"><span>Størrelse</span><input type="range" min="15" max="400" step="1" value="' + width + '" id="wsize' + i + '"><output>' + width + " mm</output></label>" +
             '<label class="row"><span>Rotasjon</span><input type="range" min="-180" max="180" step="5" value="' + w.rot + '" id="wrot' + i + '"><output>' + w.rot + "°</output></label>";
         card.addEventListener("pointerdown", () => selectWhimsy(i));
@@ -599,6 +628,8 @@ function buildWhimsyCards() {
             regen(0);
         }));
         card.querySelector(".plugbtn").addEventListener("click", () => startPlugs(i));
+        const sm = card.querySelector("#wsmooth" + i);
+        sm.addEventListener("input", () => { w.smooth = +sm.value; sm.nextElementSibling.textContent = SMOOTH_WORDS[w.smooth]; regen(); });
         const size = card.querySelector("#wsize" + i), rot = card.querySelector("#wrot" + i);
         const detach = () => { if (w.anchor) { delete w.anchor; const c = card.querySelector(".chip.anchor"); if (c) c.remove(); } };
         size.addEventListener("input", () => { detach(); w.width = +size.value; size.nextElementSibling.textContent = size.value + " mm"; regen(); });
@@ -707,6 +738,7 @@ function updateImageUI() {
 function initUI() {
     seg("shapeSeg", setShape);
     seg("styleSeg", (v) => { S.style = v; regen(0); });
+    $("borderSmooth").addEventListener("input", (e) => { S.borderSmooth = +e.target.value; $("borderSmoothOut").textContent = SMOOTH_WORDS[S.borderSmooth]; regen(); });
     seg("pickOp", (v) => { PICK.op = v; });
 
     const num = (id, key) => $(id).addEventListener("input", () => {

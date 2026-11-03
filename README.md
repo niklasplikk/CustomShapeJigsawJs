@@ -25,12 +25,15 @@ Files: `engine.js` is the original generator (lightly patched, with hooks), `app
 
 ## Magic Puzzle (beta) — `magic/`
 
-A puzzle with a twist, inspired by shift-and-reveal puzzles: when it's done, its sections (each a small puzzle with straight edges) are moved into a new order, a gap opens, and a set of secret pieces fills it.
+A puzzle with a twist, like the shift-and-reveal puzzles from the Magic Puzzle Company. The finished puzzle is a normal grid jigsaw with a road across it and a crossroads in one column. To open it:
 
-- Choose size, number of sections (2–4), secret area width and the open arrangement (‹ › to move sections and the ★ secret area).
-- Main picture: upload one, or paint one with an OpenAI key (prompt can be copied for ChatGPT too).
-- Seams: the calmest vertical strip of the picture becomes a shared seam strip; every section edge and both edges of the secret area blend into it, so the picture lines up across every seam in both arrangements.
-- Secret picture: painted by AI from the whole open arrangement with the gap empty (own OpenAI key, kept in the browser), or via a downloadable template + prompt for ChatGPT, or uploaded. Seam strips are blended back in afterwards.
-- Downloads: cut file (SVG/PDF/DXF) with the closed puzzle and the secret pieces beside it, and a matching picture for printing on the wood.
+1. Slide section B (everything below the road) down one row (or two).
+2. Lift the crossroads sections (C, D, E…) and lay them into the gap that opened along the road.
+3. A hole has appeared in the middle where the crossroads was; the secret pieces fill it. The opened puzzle is one row taller.
+
+- Seams follow lattice lines and use the same non-locking tooth everywhere, so sections slide apart and lock into either arrangement.
+- The road is painted onto every seam that changes partners (a seamless tile), so the picture lines up both ways. Road style: plain path (any picture), the picture's own texture, or painted into the scene with AI. Road position and crossroads column are chosen from the calmest part of the picture, or by hand.
+- Secret picture: painted by AI into the opened puzzle with the hole empty (own OpenAI key, kept in the browser; falls back to DALL·E without a verified organisation), via a template + prompt for ChatGPT, or uploaded.
+- Downloads: cut file (SVG/PDF/DXF) with the finished puzzle and the secret pieces beside it, a matching picture for printing, and a four-panel instruction sheet.
 
 The classic workshop as it was before this is kept on the `v1-classic` branch.

@@ -475,9 +475,15 @@
         #stage .outline { fill: none; stroke: var(--cut); stroke-width: 1.6px; vector-effect: non-scaling-stroke; }
         #stage .cuts path { fill: none; stroke: rgba(255,255,255,.9); stroke-width: 1.1px; vector-effect: non-scaling-stroke; }
         #stage.nopic .cuts path { stroke: var(--cut); }
-        #stage .tag { font: 700 28px var(--font-display); fill: rgba(255,255,255,.0); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
-        #stage.nopic .tag, #stage .waiting .tag { fill: var(--cut); opacity: .5; }
         .toolbar .seg { min-width: 180px; }
+        #stage .secline path { fill: none; stroke: var(--cut); stroke-width: 1.6px; vector-effect: non-scaling-stroke; }
+        #stage .tag { fill: #fff; stroke: rgba(40,30,25,.75); stroke-width: 3px; paint-order: stroke; font: 700 34px var(--font-display); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+        #stage .tag.small { font-size: 18px; }
+        #stage .tag.star { fill: #f2c230; font-size: 30px; }
+        #stage.open .secret .tag.star { opacity: 0; }
+        #stage .secretblank { fill: var(--wood-2); }
+        #stage.nopic .tag { fill: var(--ink); stroke: none; }
+        .how { margin: 0 0 8px; padding-left: 1.3em; font-size: 0.88rem; display: grid; gap: 6px; }
     </style>
     <script src="../export.js"></script>
     <script src="magic.js"></script>
@@ -489,7 +495,7 @@
             <header class="brand">
                 <a class="back" href="../">← Jigsaw Workshop</a>
                 <h1>Magic Puzzle <span class="beta">beta</span></h1>
-                <p>A puzzle with a twist: when it's done, move its sections apart, fill the gap with the secret pieces, and the picture tells a new story.</p>
+                <p>A puzzle with a twist: when it's finished, slide its sections along the road, and a hole appears in the middle of the picture. The secret pieces fill it, and the picture tells a new story.</p>
             </header>
 
             <section class="step">
@@ -502,23 +508,33 @@
                         <label class="num"><input id="mH" type="number" inputmode="decimal" min="60" aria-label="Height"><span>mm</span></label>
                     </div>
                 </div>
-                <div class="field">
-                    <label class="label" for="mN">Sections</label>
-                    <select id="mN" class="btn" style="text-align:left">
-                        <option value="2">2 sections (A B)</option>
-                        <option value="3">3 sections (A B C)</option>
-                        <option value="4">4 sections (A B C D)</option>
-                    </select>
+                <div class="row2">
+                    <div class="field">
+                        <label class="label" for="mN">Columns</label>
+                        <select id="mN" class="btn" style="text-align:left">
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="5">5</option>
+                            <option value="6">6</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="mB">B slides down</label>
+                        <select id="mB" class="btn" style="text-align:left">
+                            <option value="1">1 row</option>
+                            <option value="2">2 rows</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="range">
-                    <label class="label" for="mGap">Secret area width (× a section)</label>
-                    <input type="range" id="mGap" min="0.5" max="1.5" step="0.1">
-                    <output id="mGapOut"></output>
+                    <label class="label" for="mRoad">Road</label>
+                    <input type="range" id="mRoad" min="1" max="9" step="1">
+                    <output id="mRoadOut"></output>
                 </div>
                 <div class="field">
-                    <span class="label">Open arrangement</span>
-                    <div class="order" id="order"></div>
-                    <p class="hint">Closed: <strong id="closedOrder"></strong>. Use ‹ › to choose where each section goes when the puzzle is opened; ★ is the secret area. <button type="button" class="linkbtn" id="resetOrder">Reset</button></p>
+                    <label class="label" for="mK">Crossroads (where the hole appears)</label>
+                    <select id="mK" class="btn" style="text-align:left"></select>
+                    <p class="hint">Hole: <strong id="holeOut"></strong>. More columns give a taller hole. <button type="button" class="linkbtn" id="roadAuto">Choose from the picture</button></p>
                 </div>
                 <div class="range">
                     <label class="label" for="mPiece">Piece size</label>
@@ -529,11 +545,17 @@
                     <button type="button" class="btn" id="variant">New variant</button>
                     <label class="toggle"><input type="checkbox" id="showCuts"> Show cut lines</label>
                 </div>
+                <label class="toggle"><input type="checkbox" id="showSections"> Show section letters</label>
+                <details class="box">
+                    <summary>How the trick works</summary>
+                    <ol class="how" id="howSteps"></ol>
+                    <p class="hint">The seams between sections run along the road and all have the same knob, so the sections lock together both ways, and the picture lines up because the road looks the same everywhere.</p>
+                </details>
             </section>
 
             <section class="step">
                 <h2><span class="n">2</span>Main picture</h2>
-                <p class="hint">The picture for the closed puzzle. Calm sky and ground where the sections meet make the twist look best.</p>
+                <p class="hint">The picture for the finished puzzle. The road is painted along the calmest band of it (a meadow, the sea, a street), so pictures with one look best.</p>
                 <label class="drop">
                     <strong>Choose a picture</strong>
                     <span class="hint">Any picture works. It's cropped to the puzzle's shape.</span>
@@ -542,6 +564,16 @@
                 <div class="row2">
                     <button type="button" class="btn" id="aiMain" disabled>Paint one with AI</button>
                     <button type="button" class="btn" id="copyMainPrompt">Copy a prompt for it</button>
+                </div>
+                <textarea id="mainPromptText" hidden readonly></textarea>
+                <div class="field">
+                    <span class="label">Road</span>
+                    <div class="seg" id="roadSeg" role="group" aria-label="Road">
+                        <button type="button" data-v="plain" aria-pressed="true">Plain path</button>
+                        <button type="button" data-v="picture" aria-pressed="false">From the picture</button>
+                    </div>
+                    <button type="button" class="btn" id="aiRoad" disabled>Paint the road with AI</button>
+                    <p class="hint">The seams run along the road, so it has to look the same everywhere. A plain path works with any picture; AI can paint a real road into the scene.</p>
                 </div>
                 <span class="done" id="mainDone" hidden>✓ Main picture in place</span>
                 <details class="box">
@@ -582,10 +614,10 @@
                     </div>
                 </details>
                 <label class="btn" style="text-align:center">Load a secret picture…<input type="file" id="secretFile" accept="image/*" hidden></label>
-                <p class="hint">Load the filled-in template, or a picture of just the secret area. The edges are blended so they line up with every section.</p>
+                <p class="hint">Load the filled-in template, or a picture of just the hole. Its edges are blended into the neighbouring pieces.</p>
                 <span class="done" id="secretDone" hidden>✓ Secret picture in place</span>
                 <p class="hint" id="aiNote" hidden></p>
-                <p class="warn" id="secretStale" hidden>The open arrangement changed since the secret picture was made. Paint it again so it fits its new neighbours.</p>
+                <p class="warn" id="secretStale" hidden>The hole moved or changed size since the secret picture was made. Paint it again so it fits its new neighbours.</p>
 
             </section>
 
@@ -601,7 +633,8 @@
                 </div>
                 <button type="button" class="btn primary" id="download" disabled>Download SVG for laser</button>
                 <button type="button" class="btn" id="printBtn" disabled>Download picture for printing</button>
-                <p class="hint">The cut file has the closed puzzle with the secret pieces beside it. The print picture is laid out the same way, so you can print it on the wood (or on sticker paper) and cut on top.</p>
+                <button type="button" class="btn" id="sheetBtn" disabled>Download instruction sheet</button>
+                <p class="hint">The cut file has the finished puzzle with the secret pieces beside it. The print picture is laid out the same way, so you can print it on the wood (or on sticker paper) and cut on top. Put the instruction sheet in the box with the secret bag.</p>
             </section>
         </aside>
 

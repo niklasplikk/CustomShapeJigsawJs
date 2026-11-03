@@ -270,8 +270,8 @@ function apiKey() { try { return localStorage.getItem("jw-openai-key") || ""; } 
 function toBlob(canvas) { return new Promise((resolve) => canvas.toBlob(resolve, "image/png")); }
 
 // fit a canvas into one of the API's sizes, keeping its aspect; returns the canvas and where it sits
-function fitApi(src) {
-    const sizes = [[1024, 1024], [1536, 1024], [1024, 1536]];
+function fitApi(src, sizesIn) {
+    const sizes = sizesIn || [[1024, 1024], [1536, 1024], [1024, 1536]];
     const ar = src.width / src.height;
     const [w, h] = sizes.reduce((b, s) => (Math.abs(Math.log(s[0] / s[1] / ar)) < Math.abs(Math.log(b[0] / b[1] / ar)) ? s : b));
     const s = Math.min(w / src.width, h / src.height);
@@ -281,53 +281,87 @@ function fitApi(src) {
     return { canvas: c, box: box, size: w + "x" + h };
 }
 
-async function aiRequest(path, form) {
-    if (window.MAGIC_FAKE_AI) return window.MAGIC_FAKE_AI(path, form);
-    const res = await fetch("https://api.openai.com/v1/images/" + path, {
-        method: "POST", headers: { Authorization: "Bearer " + apiKey() }, body: form,
-    });
+async function aiFetch(path, body, json) {
+    const headers = { Authorization: "Bearer " + apiKey() };
+    if (json) headers["Content-Type"] = "application/json";
+    let res;
+    try {
+        res = await fetch("https://api.openai.com/v1/images/" + path, { method: "POST", headers: headers, body: json ? JSON.stringify(body) : body });
+    } catch (e) {
+        throw new Error("Couldn't reach OpenAI. Check your internet connection.");
+    }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((j.error && j.error.message) || "The image service answered " + res.status + ".");
-    const b64 = j.data && j.data[0] && j.data[0].b64_json;
-    if (!b64) throw new Error("The image service didn't return a picture.");
-    return loadImage("data:image/png;base64," + b64);
+    if (!res.ok) {
+        const err = new Error((j.error && j.error.message) || "OpenAI answered " + res.status + ".");
+        err.status = res.status;
+        throw err;
+    }
+    const d = j.data && j.data[0];
+    if (d && d.b64_json) return loadImage("data:image/png;base64," + d.b64_json);
+    throw new Error("OpenAI didn't return a picture.");
 }
+
+// gpt-image-1 needs a verified OpenAI organisation; without one, fall back to the DALL·E models
+function needsFallback(e) {
+    return e && (e.status === 403 || e.status === 404 || /verif|not have access|does not exist|model/i.test(e.message));
+}
+
+async function aiEdit(imageCanvas, prompt) {
+    if (window.MAGIC_FAKE_AI) {
+        const f = new FormData(); f.append("image", await toBlob(imageCanvas)); f.append("prompt", prompt);
+        return window.MAGIC_FAKE_AI("edits", f);
+    }
+    const fit = fitApi(imageCanvas);
+    const form = new FormData();
+    form.append("model", "gpt-image-1");
+    form.append("prompt", prompt);
+    form.append("size", fit.size);
+    form.append("image", await toBlob(fit.canvas), "open.png");
+    let img, used = fit;
+    try {
+        img = await aiFetch("edits", form);
+    } catch (e) {
+        if (!needsFallback(e)) throw e;
+        // DALL·E 2: square only, prompt up to 1000 characters
+        const sq = fitApi(imageCanvas, [[1024, 1024]]);
+        const f2 = new FormData();
+        f2.append("model", "dall-e-2");
+        f2.append("prompt", prompt.slice(0, 990));
+        f2.append("size", "1024x1024");
+        f2.append("response_format", "b64_json");
+        f2.append("image", await toBlob(sq.canvas), "open.png");
+        img = await aiFetch("edits", f2);
+        used = sq;
+        aiNote("Used DALL·E 2, because gpt-image-1 isn't available on this OpenAI account (it needs a verified organisation).");
+    }
+    // back to the size of the picture we sent
+    const back = canvasOf(imageCanvas.width, imageCanvas.height);
+    const sx = img.width / used.canvas.width, sy = img.height / used.canvas.height;
+    back.getContext("2d").drawImage(img, used.box.x * sx, used.box.y * sy, used.box.w * sx, used.box.h * sy, 0, 0, back.width, back.height);
+    return back;
+}
+
+async function aiGenerate(prompt) {
+    if (window.MAGIC_FAKE_AI) return window.MAGIC_FAKE_AI("generations", new FormData());
+    const wide = M.W / M.H > 1.2, tall = M.W / M.H < 0.8;
+    try {
+        return await aiFetch("generations", { model: "gpt-image-1", prompt: prompt, size: wide ? "1536x1024" : tall ? "1024x1536" : "1024x1024" }, true);
+    } catch (e) {
+        if (!needsFallback(e)) throw e;
+        aiNote("Used DALL·E 3, because gpt-image-1 isn't available on this OpenAI account (it needs a verified organisation).");
+        return aiFetch("generations", { model: "dall-e-3", prompt: prompt.slice(0, 3900), size: wide ? "1792x1024" : tall ? "1024x1792" : "1024x1024", response_format: "b64_json" }, true);
+    }
+}
+
+function aiNote(text) { const el = $("aiNote"); if (el) { el.textContent = text; el.hidden = false; } }
 
 async function aiSecret() {
     const comp = openComposite(false, null);               // gap transparent = to be painted
-    const fit = fitApi(comp);
-    // everything outside the puzzle in the API canvas may be painted too; we crop it away
-    const form = new FormData();
-    form.append("model", "gpt-image-1");
-    form.append("prompt", secretPrompt());
-    form.append("size", fit.size);
-    form.append("image", await toBlob(fit.canvas), "open.png");
-    const img = await aiRequest("edits", form);
-    const back = canvasOf(comp.width, comp.height);
-    back.getContext("2d").drawImage(img, fit.box.x * img.width / fit.canvas.width, fit.box.y * img.height / fit.canvas.height,
-        fit.box.w * img.width / fit.canvas.width, fit.box.h * img.height / fit.canvas.height, 0, 0, back.width, back.height);
-    takeSecretFrom(back);
+    takeSecretFrom(await aiEdit(comp, secretPrompt()));
 }
 
 async function aiMain() {
-    const form = new FormData();
-    form.append("model", "gpt-image-1");
-    form.append("prompt", mainPrompt());
-    form.append("size", M.W / M.H > 1.2 ? "1536x1024" : M.W / M.H < 0.8 ? "1024x1536" : "1024x1024");
-    // generations take JSON, not a form
-    let img;
-    if (window.MAGIC_FAKE_AI) img = await window.MAGIC_FAKE_AI("generations", form);
-    else {
-        const res = await fetch("https://api.openai.com/v1/images/generations", {
-            method: "POST",
-            headers: { Authorization: "Bearer " + apiKey(), "Content-Type": "application/json" },
-            body: JSON.stringify({ model: "gpt-image-1", prompt: mainPrompt(), size: form.get("size") }),
-        });
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((j.error && j.error.message) || "The image service answered " + res.status + ".");
-        img = await loadImage("data:image/png;base64," + j.data[0].b64_json);
-    }
-    await setMainPicture(img);
+    await setMainPicture(await aiGenerate(mainPrompt()));
 }
 
 // ------------------------------------------------------------------ preview

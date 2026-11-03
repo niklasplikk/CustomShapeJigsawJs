@@ -544,6 +544,17 @@
                     <button type="button" class="btn" id="copyMainPrompt">Copy a prompt for it</button>
                 </div>
                 <span class="done" id="mainDone" hidden>✓ Main picture in place</span>
+                <details class="box">
+                    <summary>AI key</summary>
+                    <div class="field">
+                        <p class="hint">To paint with AI, paste an OpenAI API key. It's kept only in this browser and sent only to OpenAI. Each picture costs a few cents on your OpenAI account.</p>
+                        <div class="keyrow">
+                            <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off">
+                            <button type="button" class="btn small" id="saveKey">Save</button>
+                        </div>
+                        <p class="hint"><span id="hasKey"></span> · <button type="button" class="linkbtn" id="forgetKey">Forget key</button></p>
+                    </div>
+                </details>
             </section>
 
             <section class="step" id="secretBox" hidden>
@@ -573,18 +584,9 @@
                 <label class="btn" style="text-align:center">Load a secret picture…<input type="file" id="secretFile" accept="image/*" hidden></label>
                 <p class="hint">Load the filled-in template, or a picture of just the secret area. The edges are blended so they line up with every section.</p>
                 <span class="done" id="secretDone" hidden>✓ Secret picture in place</span>
+                <p class="hint" id="aiNote" hidden></p>
                 <p class="warn" id="secretStale" hidden>The open arrangement changed since the secret picture was made. Paint it again so it fits its new neighbours.</p>
-                <details class="box">
-                    <summary>AI key</summary>
-                    <div class="field">
-                        <p class="hint">To paint with AI, paste an OpenAI API key. It's kept only in this browser and sent only to OpenAI. Each picture costs a few cents on your OpenAI account.</p>
-                        <div class="keyrow">
-                            <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off">
-                            <button type="button" class="btn small" id="saveKey">Save</button>
-                        </div>
-                        <p class="hint"><span id="hasKey"></span> · <button type="button" class="linkbtn" id="forgetKey">Forget key</button></p>
-                    </div>
-                </details>
+
             </section>
 
             <section class="step">

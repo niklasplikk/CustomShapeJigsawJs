@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Magic Puzzle · Jigsaw Workshop</title>
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="../apple-touch-icon.png">
+    <meta name="theme-color" content="#c44511">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&display=swap">
+    <style>
+        /* Layout: settings column on the left in four real steps, a large plywood preview on the right; stacked on phones with the preview first. */
+        :root {
+            --bg: #eceee9;
+            --panel: #fbfbf8;
+            --ink: #1d231f;
+            --muted: #5d6862;
+            --line: #d6dbd4;
+            --field: #ffffff;
+            --accent: #c44511;
+            --accent-ink: #ffffff;
+            --wood: #e6cfa6;
+            --wood-2: #efdcb9;
+            --cut: #4b2a14;
+            --sel: rgba(196, 69, 17, 0.28);
+            --good: #1f7a3d;
+            --weak: #9a6a00;
+            --bad: #b3261e;
+            --warn-bg: #fbeee7;
+            --font-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+            --font-body: "Instrument Sans", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+            color-scheme: light;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --bg: #141816; --panel: #1b201d; --ink: #e7ebe8; --muted: #9ba69f; --line: #2c3430; --field: #222825;
+                --accent: #ff7a3d; --accent-ink: #1b0d05; --wood: #d4bb8f; --wood-2: #ddc79f; --cut: #3b200e;
+                --sel: rgba(255, 122, 61, 0.35); --good: #5fc27f; --weak: #e0b040; --bad: #ff7b72; --warn-bg: #2e211b;
+                color-scheme: dark;
+            }
+        }
+
+        :root[data-theme="dark"] {
+            --bg: #141816; --panel: #1b201d; --ink: #e7ebe8; --muted: #9ba69f; --line: #2c3430; --field: #222825;
+            --accent: #ff7a3d; --accent-ink: #1b0d05; --wood: #d4bb8f; --wood-2: #ddc79f; --cut: #3b200e;
+            --sel: rgba(255, 122, 61, 0.35); --good: #5fc27f; --weak: #e0b040; --bad: #ff7b72; --warn-bg: #2e211b;
+            color-scheme: dark;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--ink);
+            font: 15px/1.45 var(--font-body);
+            -webkit-font-smoothing: antialiased;
+        }
+        [hidden] { display: none !important; }
+
+        .app {
+            display: grid;
+            grid-template-columns: minmax(320px, 390px) 1fr;
+            height: 100%;
+        }
+
+        /* ---------- settings column ---------- */
+        .panel {
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            overflow-y: auto;
+            padding-block: 24px 40px;
+            padding-left: max(20px, env(safe-area-inset-left, 0px));
+            padding-right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+        .brand h1 {
+            font: 700 1.6rem/1.1 var(--font-display);
+            letter-spacing: -0.01em;
+            margin: 0 0 6px;
+        }
+        .brand p { margin: 0; color: var(--muted); }
+
+        .step { display: flex; flex-direction: column; gap: 14px; }
+        .step h2 {
+            font: 600 1.05rem/1.2 var(--font-display);
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .step h2 .n {
+            display: inline-grid;
+            place-items: center;
+            width: 24px; height: 24px;
+            border-radius: 50%;
+            border: 1.5px solid var(--ink);
+            font: 600 0.8rem/1 var(--font-body);
+        }
+        .step + .step { border-top: 1px solid var(--line); padding-top: 24px; }
+        .hint { margin: 0; color: var(--muted); font-size: 0.87rem; }
+
+        .label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--muted);
+        }
+        .field { display: flex; flex-direction: column; gap: 6px; }
+
+        /* segmented control */
+        .seg {
+            display: grid;
+            grid-auto-flow: column;
+            grid-auto-columns: 1fr;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 3px;
+            gap: 3px;
+        }
+        .seg button {
+            font: 500 0.92rem var(--font-body);
+            color: var(--muted);
+            background: transparent;
+            border: 0;
+            border-radius: 7px;
+            padding: 8px 6px;
+            cursor: pointer;
+        }
+        .seg button[aria-pressed="true"] {
+            background: var(--field);
+            color: var(--ink);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        }
+
+        .dims { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .dims .x { color: var(--muted); }
+        .num {
+            display: inline-flex;
+            align-items: center;
+            background: var(--field);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 0 10px 0 0;
+        }
+        .num input {
+            width: 4.5em;
+            border: 0;
+            background: transparent;
+            color: var(--ink);
+            font: 500 1rem var(--font-body);
+            font-variant-numeric: tabular-nums;
+            padding: 8px 4px 8px 10px;
+        }
+        .num input:focus { outline: none; }
+        .num:focus-within { border-color: var(--accent); }
+        .num span { color: var(--muted); font-size: 0.85rem; }
+
+        .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+        .chipbtn {
+            font: 500 0.82rem var(--font-body);
+            color: var(--ink);
+            background: transparent;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 4px 10px;
+            cursor: pointer;
+        }
+        .chipbtn:hover { border-color: var(--muted); }
+
+        .drop {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            text-align: center;
+            border: 1.5px dashed var(--line);
+            border-radius: 12px;
+            padding: 20px 14px;
+            cursor: pointer;
+            color: var(--muted);
+            transition: border-color .15s, background .15s;
+        }
+        .drop strong { color: var(--ink); font-weight: 600; }
+        .drop.over, .drop:hover { border-color: var(--accent); }
+        .drop.has { padding: 12px; }
+        .loaded {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            font-size: 0.92rem;
+        }
+        .loaded .fname { font-weight: 600; overflow-wrap: anywhere; }
+
+        .range { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+        .range .label { grid-column: 1 / -1; }
+        .range output { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 4.5em; text-align: right; }
+        input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+        .btn {
+            font: 600 0.95rem var(--font-body);
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            border: 1px solid var(--line);
+            background: var(--field);
+            color: var(--ink);
+        }
+        .btn:hover { border-color: var(--muted); }
+        .btn.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: var(--accent-ink);
+            font-size: 1rem;
+            padding: 13px 16px;
+        }
+        .btn.primary:disabled { opacity: .45; cursor: default; }
+        .linkbtn {
+            background: none; border: 0; padding: 0;
+            color: var(--accent); font: 500 0.9rem var(--font-body);
+            cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+        }
+        button:focus-visible, input:focus-visible, .drop:focus-within, .gitem:focus-within {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* shaped-piece gallery */
+        .gallery { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+        .gitem {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            background: var(--field);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 8px 4px 6px;
+            cursor: pointer;
+            font: 500 0.75rem var(--font-body);
+            color: var(--ink);
+        }
+        .gitem:hover { border-color: var(--accent); }
+        .thumb { width: 36px; height: 30px; }
+        .thumb path { fill: var(--wood); stroke: var(--cut); stroke-width: 1.3; }
+        .gitem.own .thumb path { fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+
+        .wlist { display: flex; flex-direction: column; gap: 8px; }
+        .wcard {
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            background: var(--field);
+        }
+        .wcard.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .whead { display: flex; align-items: center; gap: 10px; }
+        .wthumb { width: 34px; height: 30px; flex: none; }
+        .wthumb path { fill: var(--wood); stroke: var(--cut); stroke-width: 1.3; }
+        .wname { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+        .wname strong { font-weight: 600; overflow-wrap: anywhere; }
+        .chip { font-size: 0.75rem; font-weight: 600; }
+        .chip.good { color: var(--good); }
+        .chip.weak { color: var(--weak); }
+        .chip.bad { color: var(--bad); }
+        .icon {
+            background: none; border: 0; color: var(--muted);
+            font-size: 0.95rem; cursor: pointer; padding: 6px; border-radius: 6px;
+        }
+        .icon:hover { color: var(--bad); }
+        .wcard .row { display: grid; grid-template-columns: 5.5em 1fr 4.2em; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+        .wcard output { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+        .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; cursor: pointer; }
+        .toggle input { accent-color: var(--accent); }
+
+        /* ---------- preview ---------- */
+        .preview {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            min-height: 0;
+            padding-block: 16px 20px;
+            padding-left: 20px;
+            padding-right: max(20px, env(safe-area-inset-right, 0px));
+            gap: 12px;
+        }
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            font-variant-numeric: tabular-nums;
+        }
+        .toolbar .stat { font-weight: 600; }
+        .toolbar .sub { color: var(--muted); }
+        .toolbar .spacer { flex: 1; }
+        .busy {
+            font-size: 0.85rem;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .busy::before {
+            content: "";
+            width: 8px; height: 8px; border-radius: 50%;
+            background: var(--accent);
+            animation: pulse 0.9s ease-in-out infinite alternate;
+        }
+        @keyframes pulse { from { opacity: .25; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .busy::before { animation: none; } }
+
+        .stagewrap {
+            flex: 1;
+            min-height: 0;
+            position: relative;
+            display: grid;
+            place-items: center;
+        }
+        #stage { width: 100%; height: 100%; display: block; touch-action: none; }
+        #stage .board { fill: var(--wood); }
+        #stage .wfill { fill: var(--wood-2); cursor: grab; }
+        #stage .wfill.sel { fill: var(--sel); }
+        #stage.withphoto .wfill { fill: transparent; }
+        #stage.withphoto .wfill.sel { fill: var(--sel); }
+        #stage .cuts { pointer-events: none; }
+        #stage .cuts path, #stage .cuts rect {
+            stroke: var(--cut) !important;
+            stroke-width: 1.3px !important;
+            fill: none !important;
+            vector-effect: non-scaling-stroke;
+        }
+        #stage.withphoto .cuts { filter: drop-shadow(0 0 1px rgba(0, 0, 0, .85)); }
+        #stage.withphoto .cuts path, #stage.withphoto .cuts rect { stroke: #fff !important; }
+        #stage.dragging .cuts { opacity: .2; }
+        #stage.picking { cursor: crosshair; }
+        #stage.plugging { cursor: crosshair; }
+        #stage.zoomed { cursor: grab; }
+        #stage.zoomed.picking, #stage.zoomed.plugging { cursor: crosshair; }
+        #stage.panning, #stage.panning * { cursor: grabbing !important; }
+        .zoom { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 9px; background: var(--field); padding: 2px; }
+        .zoom button { border: 0; background: transparent; color: var(--ink); font: 600 0.95rem var(--font-body); padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+        .zoom button:hover { background: var(--bg); }
+        .zoom span { min-width: 3.4em; text-align: center; font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+        .stagewrap { overflow: hidden; }
+        #stage.plugging .wfill { cursor: crosshair; }
+        #stage.plugging .wfill.sel { stroke: var(--accent); stroke-width: 3px; vector-effect: non-scaling-stroke; }
+        .plugbtn { justify-self: start; font-size: 0.85rem !important; }
+        #stage.picking .cuts { opacity: .25; }
+        #stage.picking .marks, #stage.picking .whimsyfills { display: none; }
+        #stage .pickline { fill: none; stroke: var(--accent); stroke-width: 2.5px; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+        .pickbar {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+            background: var(--panel); border: 1px solid var(--accent); border-radius: 12px; padding: 10px 14px;
+        }
+        .pickbar p { margin: 0; flex: 1 1 260px; font-size: 0.92rem; }
+        .pickctl { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .pickctl .seg { min-width: 160px; }
+        .tol { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+        .tol input { width: 110px; }
+        .pickbtns { display: flex; gap: 8px; }
+        .pickbtns .btn.primary { font-size: 0.95rem; padding: 10px 14px; }
+        .projectbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+        .projectbar .btn.small { font-size: 0.85rem; padding: 6px 12px; }
+        .projectbar .hint { font-size: 0.8rem; }
+        .resume { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--accent);
+            border-radius: 10px; padding: 10px 12px; background: var(--field); font-size: 0.9rem; }
+        .resumebtns { display: flex; gap: 8px; }
+        .resume .btn.small { font-size: 0.85rem; padding: 6px 12px; }
+        .resume .btn.primary { font-size: 0.85rem; }
+        .pickrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .pickrow > :nth-child(3):last-child { grid-column: 1 / -1; }
+        .btn:disabled { opacity: .5; cursor: default; }
+        .seg button:disabled { opacity: .45; cursor: default; }
+        .linkbtn.small { font-size: 0.85rem; align-self: flex-start; }
+        .stepper { display: inline-flex; align-items: center; gap: 8px; }
+        .stepper output { min-width: 1.5em; text-align: center; font-weight: 600; color: var(--ink); }
+        .btn.small { padding: 2px 10px; font-size: 1rem; line-height: 1.4; border-radius: 8px; }
+        .chip.anchor { color: var(--muted); font-weight: 500; }
+        #stage .marks circle { fill: none; stroke: var(--bad); stroke-width: 2.5px; vector-effect: non-scaling-stroke; }
+        #stage.dragging .marks { display: none; }
+        .check { font-size: 0.85rem; font-weight: 600; }
+        .check.ok { color: var(--good); }
+        .check.bad { color: var(--bad); }
+        #stage.dragging .wfill { cursor: grabbing; }
+
+        .empty {
+            color: var(--muted);
+            text-align: center;
+            max-width: 28em;
+            padding: 24px;
+            border: 1.5px dashed var(--line);
+            border-radius: 14px;
+        }
+        #warnings { display: flex; flex-direction: column; gap: 6px; }
+        .warn {
+            margin: 0;
+            background: var(--warn-bg);
+            color: var(--ink);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+        }
+        .warn::before { content: "⚠ "; color: var(--bad); }
+
+        /* engine internals must stay rendered (it measures SVG geometry) but out of sight */
+        #engine { position: absolute; left: -100000px; top: 0; width: 1px; height: 1px; overflow: hidden; }
+
+        @media (max-width: 820px) {
+            .app { grid-template-columns: 1fr; height: auto; }
+            .preview.picking-on { height: 88vh; }
+            .pickbar { padding: 8px 10px; gap: 8px; }
+            .pickbar p { font-size: 0.82rem; flex-basis: 100%; }
+            .tol input { width: 80px; }
+            .pickbtns .btn { padding: 8px 12px; }
+            .preview {
+                order: -1;
+                height: 50vh;
+                position: sticky;
+                top: 0;
+                z-index: 2;
+                background: var(--bg);
+                border-bottom: 1px solid var(--line);
+                padding-top: max(12px, env(safe-area-inset-top, 0px));
+                padding-left: max(16px, env(safe-area-inset-left, 0px));
+                padding-right: max(16px, env(safe-area-inset-right, 0px));
+            }
+            .panel {
+                border-right: 0;
+                overflow: visible;
+                padding-left: max(16px, env(safe-area-inset-left, 0px));
+                padding-right: max(16px, env(safe-area-inset-right, 0px));
+            }
+        }
+    
+        /* ---------- magic page ---------- */
+        .brand .back { font-size: 0.85rem; color: var(--accent); text-decoration: none; }
+        .brand .back:hover { text-decoration: underline; }
+        .brand h1 .beta { font: 600 0.7rem var(--font-body); color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 2px 8px; vertical-align: middle; margin-left: 6px; }
+        .order { display: flex; gap: 6px; flex-wrap: wrap; }
+        .tile { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: var(--field); }
+        .tile span { min-width: 1.8em; text-align: center; font-weight: 700; font-family: var(--font-display); }
+        .tile.gap { border-color: var(--accent); }
+        .tile.gap span { color: var(--accent); }
+        .tile .mv { border: 0; background: none; color: var(--muted); padding: 6px 6px; cursor: pointer; font-size: 1rem; }
+        .tile .mv:disabled { opacity: .25; cursor: default; }
+        .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        textarea { width: 100%; min-height: 64px; resize: vertical; font: 0.9rem var(--font-body); color: var(--ink);
+            background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+        textarea:focus { outline: none; border-color: var(--accent); }
+        .keyrow { display: flex; gap: 6px; }
+        .keyrow input { flex: 1; min-width: 0; font: 0.9rem var(--font-body); padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--ink); }
+        .done { color: var(--good); font-size: 0.85rem; font-weight: 600; }
+        details.box { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--field); }
+        details.box summary { cursor: pointer; font-weight: 600; }
+        details.box[open] summary { margin-bottom: 10px; }
+        details.box .field + .field { margin-top: 10px; }
+        #stage .region { transition: transform 0.9s cubic-bezier(.65,0,.35,1); }
+        @media (prefers-reduced-motion: reduce) { #stage .region { transition: none; } }
+        #stage .region.waiting { opacity: 0.55; }
+        #stage .blank { fill: var(--wood); }
+        #stage .gap .blank { fill: var(--wood-2); stroke: var(--accent); stroke-dasharray: 4 3; stroke-width: 1px; vector-effect: non-scaling-stroke; }
+        #stage .outline { fill: none; stroke: var(--cut); stroke-width: 1.6px; vector-effect: non-scaling-stroke; }
+        #stage .cuts path { fill: none; stroke: rgba(255,255,255,.9); stroke-width: 1.1px; vector-effect: non-scaling-stroke; }
+        #stage.nopic .cuts path { stroke: var(--cut); }
+        #stage .tag { font: 700 28px var(--font-display); fill: rgba(255,255,255,.0); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+        #stage.nopic .tag, #stage .waiting .tag { fill: var(--cut); opacity: .5; }
+        .toolbar .seg { min-width: 180px; }
+    </style>
+    <script src="../export.js"></script>
+    <script src="magic.js"></script>
+</head>
+
+<body>
+    <div class="app">
+        <aside class="panel">
+            <header class="brand">
+                <a class="back" href="../">← Jigsaw Workshop</a>
+                <h1>Magic Puzzle <span class="beta">beta</span></h1>
+                <p>A puzzle with a twist: when it's done, move its sections apart, fill the gap with the secret pieces, and the picture tells a new story.</p>
+            </header>
+
+            <section class="step">
+                <h2><span class="n">1</span>Puzzle</h2>
+                <div class="field">
+                    <span class="label">Size (closed)</span>
+                    <div class="dims">
+                        <label class="num"><input id="mW" type="number" inputmode="decimal" min="60" aria-label="Width"><span>mm</span></label>
+                        <span class="x">×</span>
+                        <label class="num"><input id="mH" type="number" inputmode="decimal" min="60" aria-label="Height"><span>mm</span></label>
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label" for="mN">Sections</label>
+                    <select id="mN" class="btn" style="text-align:left">
+                        <option value="2">2 sections (A B)</option>
+                        <option value="3">3 sections (A B C)</option>
+                        <option value="4">4 sections (A B C D)</option>
+                    </select>
+                </div>
+                <div class="range">
+                    <label class="label" for="mGap">Secret area width (× a section)</label>
+                    <input type="range" id="mGap" min="0.5" max="1.5" step="0.1">
+                    <output id="mGapOut"></output>
+                </div>
+                <div class="field">
+                    <span class="label">Open arrangement</span>
+                    <div class="order" id="order"></div>
+                    <p class="hint">Closed: <strong id="closedOrder"></strong>. Use ‹ › to choose where each section goes when the puzzle is opened; ★ is the secret area. <button type="button" class="linkbtn" id="resetOrder">Reset</button></p>
+                </div>
+                <div class="range">
+                    <label class="label" for="mPiece">Piece size</label>
+                    <input type="range" id="mPiece" min="15" max="60" step="1">
+                    <output id="mPieceOut"></output>
+                </div>
+                <div class="pickrow">
+                    <button type="button" class="btn" id="variant">New variant</button>
+                    <label class="toggle"><input type="checkbox" id="showCuts"> Show cut lines</label>
+                </div>
+            </section>
+
+            <section class="step">
+                <h2><span class="n">2</span>Main picture</h2>
+                <p class="hint">The picture for the closed puzzle. Calm sky and ground where the sections meet make the twist look best.</p>
+                <label class="drop">
+                    <strong>Choose a picture</strong>
+                    <span class="hint">Any picture works. It's cropped to the puzzle's shape.</span>
+                    <input type="file" id="mainFile" accept="image/*" hidden>
+                </label>
+                <div class="row2">
+                    <button type="button" class="btn" id="aiMain" disabled>Paint one with AI</button>
+                    <button type="button" class="btn" id="copyMainPrompt">Copy a prompt for it</button>
+                </div>
+                <span class="done" id="mainDone" hidden>✓ Main picture in place</span>
+            </section>
+
+            <section class="step" id="secretBox" hidden>
+                <h2><span class="n">3</span>Secret picture</h2>
+                <div class="field">
+                    <label class="label" for="secretText">What's revealed in the secret area?</label>
+                    <textarea id="secretText" placeholder="e.g. a sleeping dragon guarding a pile of gold coins"></textarea>
+                </div>
+                <div class="field">
+                    <label class="label" for="styleText">Art style (optional)</label>
+                    <textarea id="styleText" placeholder="e.g. colourful storybook illustration, soft light"></textarea>
+                </div>
+                <button type="button" class="btn primary" id="aiSecret" disabled>Paint the secret area with AI</button>
+                <details class="box">
+                    <summary>Or use ChatGPT, no key needed</summary>
+                    <div class="field">
+                        <p class="hint">1. Download the template: the open puzzle with the secret area in grey.<br>
+                            2. Give it to ChatGPT together with the prompt.<br>
+                            3. Load the picture you get back here.</p>
+                        <div class="row2">
+                            <button type="button" class="btn" id="templateBtn">Download template</button>
+                            <button type="button" class="btn" id="copyPrompt">Copy prompt</button>
+                        </div>
+                        <textarea id="promptText" hidden readonly></textarea>
+                    </div>
+                </details>
+                <label class="btn" style="text-align:center">Load a secret picture…<input type="file" id="secretFile" accept="image/*" hidden></label>
+                <p class="hint">Load the filled-in template, or a picture of just the secret area. The edges are blended so they line up with every section.</p>
+                <span class="done" id="secretDone" hidden>✓ Secret picture in place</span>
+                <p class="warn" id="secretStale" hidden>The open arrangement changed since the secret picture was made. Paint it again so it fits its new neighbours.</p>
+                <details class="box">
+                    <summary>AI key</summary>
+                    <div class="field">
+                        <p class="hint">To paint with AI, paste an OpenAI API key. It's kept only in this browser and sent only to OpenAI. Each picture costs a few cents on your OpenAI account.</p>
+                        <div class="keyrow">
+                            <input type="password" id="apiKey" placeholder="sk-…" autocomplete="off">
+                            <button type="button" class="btn small" id="saveKey">Save</button>
+                        </div>
+                        <p class="hint"><span id="hasKey"></span> · <button type="button" class="linkbtn" id="forgetKey">Forget key</button></p>
+                    </div>
+                </details>
+            </section>
+
+            <section class="step">
+                <h2><span class="n">4</span>Download</h2>
+                <div class="field">
+                    <span class="label">File format</span>
+                    <div class="seg" id="formatSeg" role="group" aria-label="File format">
+                        <button type="button" data-v="svg" aria-pressed="true">SVG</button>
+                        <button type="button" data-v="pdf" aria-pressed="false">PDF</button>
+                        <button type="button" data-v="dxf" aria-pressed="false">DXF</button>
+                    </div>
+                </div>
+                <button type="button" class="btn primary" id="download" disabled>Download SVG for laser</button>
+                <button type="button" class="btn" id="printBtn" disabled>Download picture for printing</button>
+                <p class="hint">The cut file has the closed puzzle with the secret pieces beside it. The print picture is laid out the same way, so you can print it on the wood (or on sticker paper) and cut on top.</p>
+            </section>
+        </aside>
+
+        <main class="preview">
+            <div class="toolbar">
+                <div class="seg" id="viewSeg" role="group" aria-label="Show">
+                    <button type="button" data-v="closed" aria-pressed="true">Closed</button>
+                    <button type="button" data-v="open" aria-pressed="false">Opened ★</button>
+                </div>
+                <span class="stat" id="stat-size">–</span>
+                <span class="sub" id="stat-pieces"></span>
+                <span class="spacer"></span>
+                <span class="busy" id="busy" hidden></span>
+            </div>
+            <div class="stagewrap">
+                <svg id="stage" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Puzzle preview"></svg>
+            </div>
+            <div id="warnings" aria-live="polite"></div>
+        </main>
+    </div>
+</body>
+
+</html>

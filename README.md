@@ -22,3 +22,15 @@ A new UI on top of the original engine, for laser-cut wooden puzzles, built arou
 - Download as SVG, PDF (vector, keeps curves; for Bambu Suite and print-driver lasers) or DXF (R12 polylines on layer CUT, curves flattened to 0.02 mm; for xTool, RDWorks and CAD). All in millimetres, every line cut once.
 
 Files: `engine.js` is the original generator (lightly patched, with hooks), `app.js` the UI and knob shape, `image.js` photo processing, `quality.js` the cutting checks, `plugs.js` the knobs on figures, `edgeknobs.js` knobs on the lines between pieces, `export.js` PDF and DXF export, `project.js` saving and opening projects, `index.html` the page.
+
+## Magic Puzzle (beta) — `magic/`
+
+A puzzle with a twist, inspired by shift-and-reveal puzzles: when it's done, its sections (each a small puzzle with straight edges) are moved into a new order, a gap opens, and a set of secret pieces fills it.
+
+- Choose size, number of sections (2–4), secret area width and the open arrangement (‹ › to move sections and the ★ secret area).
+- Main picture: upload one, or paint one with an OpenAI key (prompt can be copied for ChatGPT too).
+- Seams: the calmest vertical strip of the picture becomes a shared seam strip; every section edge and both edges of the secret area blend into it, so the picture lines up across every seam in both arrangements.
+- Secret picture: painted by AI from the whole open arrangement with the gap empty (own OpenAI key, kept in the browser), or via a downloadable template + prompt for ChatGPT, or uploaded. Seam strips are blended back in afterwards.
+- Downloads: cut file (SVG/PDF/DXF) with the closed puzzle and the secret pieces beside it, and a matching picture for printing on the wood.
+
+The classic workshop as it was before this is kept on the `v1-classic` branch.

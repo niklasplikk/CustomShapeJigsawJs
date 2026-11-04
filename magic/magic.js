@@ -1,26 +1,26 @@
 // Jigsaw Workshop — Magic puzzle (shift and reveal).
 //
 // How the trick works (the same idea as the Magic Puzzle Company puzzles):
-//  - The closed puzzle is a normal grid jigsaw. A "road" runs across it at one row line, and in one
-//    column a short side road crosses it (a crossroads). The side road is a stack of small sections.
-//  - To open it, everything below the road (section B) slides down one row. That opens a one-row gap
-//    along the road. The side-road sections are lifted out and laid into that gap.
-//  - Where the side road was there is now a hole in the middle of the puzzle. The secret pieces
-//    (the "final bag") fill it, and the picture tells a new story. The opened puzzle is one row taller.
-//  - Every seam between sections runs along a lattice line and has the same knob shape, so the
-//    sections lock together in both arrangements. The picture lines up because every seam is painted
-//    with the same seamless road texture.
+//  - The finished puzzle is a jigsaw with a road running across it, usually on a slant, so the sections
+//    have stepped, slanted edges. In one place a short side road crosses it: a stack of slanted strips.
+//  - To open it, everything below the road (section B) slides down a row or two. That opens a gap that
+//    follows the road. The side-road strips (C, D, …) are lifted out and laid into that gap.
+//  - Where the side road was there is now a slanted hole in the middle of the picture. The secret pieces
+//    (the "final bag") fill it, and the picture tells a new story. The opened puzzle is a bit taller.
+//  - Every seam follows the piece grid and has the same tooth, so the sections fit in both arrangements;
+//    the picture lines up because every seam is painted with the road.
 
 function $(id) { return document.getElementById(id); }
 const LETTERS = "ABCDEFGHIJ";
 
 const M = {
     W: 400, H: 300,             // closed puzzle, mm
-    n: 4,                       // columns of sections: the road crosses n columns, n - 1 of them get a road tile
-    bandRows: 1,                // how many rows section B slides down
+    n: 3,                       // the road is cut into n parts; n - 1 of them are side-road strips
+    bandRows: 2,                // how many rows section B slides down
+    roadShape: "slant",         // straight | slant | wavy
     k: null,                    // hole column (null = choose from the picture)
-    road: null,                 // road position as a fraction of the height (null = choose from the picture)
-    piece: 30,                  // mm
+    road: null,                 // road height at the hole, as a fraction of the height (null = from the picture)
+    piece: 25,                  // mm
     knob: 13,                   // % of piece size
     seed: Math.floor(Math.random() * 9999),
     roadStyle: "plain",         // plain | picture
@@ -35,7 +35,7 @@ const PIC = {
     orig: null,        // canvas: the uploaded / painted picture, cropped to the closed puzzle
     main: null,        // canvas: the closed picture with the road painted in
     mainUrl: null,
-    secret: null,      // canvas: picture for the secret pieces (hole + bleed)
+    secret: null,      // canvas: picture for the secret pieces (hole box + bleed)
     secretUrl: null,
     pxPerMm: 6,
     auto: null,        // { k, s } chosen from the picture
@@ -44,46 +44,93 @@ const PIC = {
 // ------------------------------------------------------------------ layout
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-function layout() {
-    const n = clamp(M.n, 3, 6), b = clamp(M.bandRows, 1, 2);
+// The road's height in each grid column, relative. It repeats from part to part, so every side-road strip
+// has the same shape and fits every slot along the road. "slant": inside each part the road runs down at a
+// slant and steps back up where two parts meet, so the strips are slanted parallelograms; "wavy": a zigzag.
+// A strip stays in one piece only if the road moves less than the slide (b rows) from column to column.
+function roadProfile(shape, C, cpc, b, g) {
+    const p = [];
+    for (let c = 0; c < C; c++) {
+        const i = c % cpc;
+        if (shape === "slant" && b >= 2) p.push(Math.floor(((i + 0.5) * g) / cpc));
+        else if (shape === "wavy" && b >= 2) p.push(Math.min(Math.min(i, cpc - 1 - i), g));
+        else p.push(0);
+    }
+    return p;
+}
+
+// the road heights at the hole column that keep a row of puzzle above and below everything
+function roadRange(prof, k, cpc, C, R, n, b, m) {
+    let lo = 1, hi = R - 1;
+    const ref = prof[k * cpc];
+    for (let c = 0; c < C; c++) {
+        const d = prof[c] - ref;
+        lo = Math.max(lo, 1 - d); hi = Math.min(hi, R - 1 - d);
+        if (c >= k * cpc && c < (k + 1) * cpc) { lo = Math.max(lo, 1 + m * b - d); hi = Math.min(hi, R - 1 - (n - 1 - m) * b - d); }
+    }
+    return [lo, hi];
+}
+
+function layout(forceK) {
+    const n = clamp(M.n, 3, 6), b = clamp(M.bandRows, 1, 3);
     const cpc = Math.max(2, Math.round(M.W / n / M.piece));
     const C = n * cpc;
     const R = Math.max((n - 1) * b + 3, Math.round(M.H / M.piece));
     const cw = M.W / C, ch = M.H / R;
-    const m = Math.floor((n - 1) / 2);                       // side-road tiles above the road
-    const sMin = 1 + m * b, sMax = R - 1 - (n - 1 - m) * b;  // keep a row of the puzzle above and below the hole
-    let k = M.k != null ? M.k : PIC.auto ? PIC.auto.k : Math.floor((n - 1) / 2);
+    const m = Math.floor((n - 1) / 2);                       // side-road strips above the road
+    let k = forceK != null ? forceK : M.k != null ? M.k : PIC.auto ? PIC.auto.k : Math.floor((n - 1) / 2);
     k = clamp(k, 1, n - 2);
-    let s = M.road != null ? Math.round(M.road * R) : PIC.auto ? PIC.auto.s : Math.round(R * 0.6);
-    s = clamp(s, sMin, sMax);
-    const tr = s - m * b;
+    // the steepest slant (up to about a third of the height) that still fits
+    // as steep as fits: up to one row per column for slanted, a few rows high for wavy
+    let g = b < 2 ? 0 : M.roadShape === "slant" ? Math.min(cpc * (b - 1), Math.round(0.45 * R)) : M.roadShape === "wavy" ? Math.min(cpc >> 1, 3) : 0;
+    let prof, range;
+    for (;;) {
+        prof = roadProfile(g === 0 ? "straight" : M.roadShape, C, cpc, b, g);
+        range = roadRange(prof, k, cpc, C, R, n, b, m);
+        if (range[0] <= range[1] || g === 0) break;
+        g--;
+    }
+    if (range[0] > range[1]) { prof = new Array(C).fill(0); range = roadRange(prof, k, cpc, C, R, n, b, m); }
+    let s = M.road != null ? Math.round(M.road * R) : PIC.auto && forceK == null ? PIC.auto.s : Math.round(R * 0.55);
+    s = clamp(s, range[0], range[1]);
+    const K0 = k * cpc, K1 = (k + 1) * cpc, ref = prof[K0];
+    const sAt = (c) => s + prof[c] - ref;                 // first row below the road, per column
+    const qTop = (c) => sAt(c) - m * b;                   // top of the side-road stack (hole columns)
+    let holeTop = Infinity, holeBot = -Infinity;
+    for (let c = K0; c < K1; c++) { holeTop = Math.min(holeTop, qTop(c)); holeBot = Math.max(holeBot, qTop(c) + n * b); }
     const donorCols = [];
     for (let j = 0; j < n; j++) if (j !== k) donorCols.push(j);
     return {
-        n, b, cpc, C, R, cw, ch, m, k, s, tr, sMin, sMax,
-        K0: k * cpc, K1: (k + 1) * cpc,
-        stackEnd: tr + (n - 1) * b, holeEnd: tr + n * b,
+        n, b, cpc, C, R, cw, ch, m, k, s, g, prof, sAt, qTop,
+        sMin: range[0], sMax: range[1],
+        K0, K1, holeTop, holeBot,
         donorCols,
         OH: M.H + b * ch,                     // opened height
         bleed: 0.4 * Math.min(cw, ch),        // picture margin around the secret pieces, for the knobs
     };
 }
 
-// which section a cell belongs to when the puzzle is closed: "A" above the road, "B" below, 2.. side-road tiles
+// which section a cell belongs to when the puzzle is closed: 0 = A above the road, 1 = B below, 2.. side-road strips
 function sectionOf(L, c, r) {
-    if (c >= L.K0 && c < L.K1 && r >= L.tr && r < L.stackEnd) return 2 + Math.floor((r - L.tr) / L.b);
-    return r < L.s ? 0 : 1;
+    if (c >= L.K0 && c < L.K1) {
+        const q = L.qTop(c);
+        if (r >= q && r < q + (L.n - 1) * L.b) return 2 + Math.floor((r - q) / L.b);
+    }
+    return r < L.sAt(c) ? 0 : 1;
 }
+// cells of the hole, in opened coordinates
+function inHole(L, c, r) { return c >= L.K0 && c < L.K1 && r >= L.qTop(c) && r < L.qTop(c) + L.n * L.b; }
 function sectionCount(L) { return 2 + (L.n - 1); }
 function sectionLetter(i) { return LETTERS[i]; }
 
-// how far a section moves when the puzzle is opened; stage 0 closed, 1 B slid down, 2 tiles moved
+// how far a section moves when the puzzle is opened; stage 0 closed, 1 B slid down, 2 strips moved
 function offsetOf(L, i, stage) {
     if (i === 0 || stage === 0) return { x: 0, y: 0 };
     if (i === 1) return { x: 0, y: L.b * L.ch };
     if (stage < 2) return { x: 0, y: 0 };
-    const t = i - 2, j = L.donorCols[t];
-    return { x: (j - L.k) * L.cpc * L.cw, y: (L.s - (L.tr + t * L.b)) * L.ch };
+    const t = i - 2, j = L.donorCols[t], dc = (j - L.k) * L.cpc;
+    const rows = L.sAt(L.K0 + dc) - (L.qTop(L.K0) + t * L.b);
+    return { x: dc * L.cw, y: rows * L.ch };
 }
 
 // ------------------------------------------------------------------ pieces
@@ -137,7 +184,7 @@ function edgeD(e, ox, oy) {
 
 // A grid of cells cols c0..c1, rows r0..r1 (lattice units). cellSec(c, r) names the section of a cell.
 // Returns the corner points and the edges, each edge knowing the sections on its two sides.
-function gridModel(L, c0, c1, r0, r1, cellSec, rnd, seamRows) {
+function gridModel(L, c0, c1, r0, r1, cellSec, rnd, hSeamBoundary) {
     const jit = 0.08, rad = (M.knob / 100) * Math.min(L.cw, L.ch);
     const inside = (c, r) => c >= c0 && c < c1 && r >= r0 && r < r1;
     const secAt = (c, r) => (inside(c, r) ? cellSec(c, r) : null);
@@ -145,7 +192,7 @@ function gridModel(L, c0, c1, r0, r1, cellSec, rnd, seamRows) {
     const free = (c, r) => {
         if (c <= c0 || c >= c1 || r <= r0 || r >= r1) return false;
         const a = secAt(c - 1, r - 1), b = secAt(c, r - 1), d = secAt(c - 1, r), e = secAt(c, r);
-        return a === b && b === d && d === e;
+        return a !== null && a === b && b === d && d === e;
     };
     const P = [];
     for (let r = r0; r <= r1; r++) {
@@ -166,20 +213,24 @@ function gridModel(L, c0, c1, r0, r1, cellSec, rnd, seamRows) {
     const edges = [];
     for (let r = r0; r <= r1; r++) for (let c = c0; c < c1; c++) {
         const up = secAt(c, r - 1), dn = secAt(c, r), kp = knobParams();
+        if (up === null && dn === null) continue;
         const e = { v1: pt(c, r), v2: pt(c + 1, r), r: rad, secs: [up, dn].filter((x) => x !== null), h: true, row: r };
-        if (up === null || dn === null) e.kind = seamRows && seamRows(r) ? "seam" : "line";
+        if (up === null || dn === null) e.kind = hSeamBoundary ? "seam" : "line";
         else if (up === dn) { e.kind = "knob"; e.k = kp; }
         else e.kind = "seam";
         edges.push(e);
     }
     for (let c = c0; c <= c1; c++) for (let r = r0; r < r1; r++) {
         const lf = secAt(c - 1, r), rt = secAt(c, r), kp = knobParams();
+        if (lf === null && rt === null) continue;
         const e = { v1: pt(c, r), v2: pt(c, r + 1), r: rad, secs: [lf, rt].filter((x) => x !== null), h: false };
         if (lf === null || rt === null || lf !== rt) e.kind = "line";
         else { e.kind = "knob"; e.k = kp; }
         edges.push(e);
     }
-    return { edges, pieces: (c1 - c0) * (r1 - r0) };
+    let pieces = 0;
+    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) if (secAt(c, r) !== null) pieces++;
+    return { edges, pieces };
 }
 
 let MODEL = null;
@@ -187,8 +238,8 @@ function buildModel() {
     const L = layout();
     const board = gridModel(L, 0, L.C, 0, L.R, (c, r) => sectionOf(L, c, r), mulberry32(M.seed * 31 + 7));
     // the secret pieces, in opened coordinates; their top and bottom edges take the seam shape
-    const secret = gridModel(L, L.K0, L.K1, L.tr, L.holeEnd, () => "S", mulberry32(M.seed * 31 + 997),
-        (r) => r === L.tr || r === L.holeEnd);
+    const secret = gridModel(L, L.K0, L.K1, L.holeTop, L.holeBot, (c, r) => (inHole(L, c, r) ? "S" : null),
+        mulberry32(M.seed * 31 + 997), true);
     MODEL = { L, board, secret };
     return MODEL;
 }
@@ -214,11 +265,22 @@ function sectionCentre(L, i) {
     let sx = 0, sy = 0, n = 0;
     for (let r = 0; r < L.R; r++) for (let c = 0; c < L.C; c++) if (sectionOf(L, c, r) === i) { sx += c + 0.5; sy += r + 0.5; n++; }
     let x = (sx / n) * L.cw, y = (sy / n) * L.ch;
-    // A and B are notched; keep the letter out of the notch
-    if (i === 0) y = Math.min(y, (L.tr / 2) * L.ch);
-    if (i === 1) y = Math.max(y, ((L.stackEnd + L.R) / 2) * L.ch);
+    // A and B are notched; keep the letter out of the notch, in the middle of the part beside it
+    if (i <= 1) {
+        const c = i === 0 ? Math.round(L.C * 0.72) : Math.round(L.C * 0.28);
+        x = (c + 0.5) * L.cw;
+        y = i === 0 ? (L.sAt(c) / 2) * L.ch : ((L.sAt(c) + L.R) / 2) * L.ch;
+    }
     return { x, y };
 }
+
+// rectangles (opened coordinates) covering the hole, one per grid column
+function holeRects(L) {
+    const out = [];
+    for (let c = L.K0; c < L.K1; c++) out.push({ x: c * L.cw, y: L.qTop(c) * L.ch, w: L.cw, h: L.n * L.b * L.ch });
+    return out;
+}
+function holeBox(L) { return { x: L.K0 * L.cw, y: L.holeTop * L.ch, w: L.cpc * L.cw, h: (L.holeBot - L.holeTop) * L.ch }; }
 
 // ------------------------------------------------------------------ pictures
 function canvasOf(w, h) { const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
@@ -267,130 +329,106 @@ function cellEnergy(L) {
     return E;
 }
 
-// The road goes where the picture is calmest: along a row line, plus the crossroads column.
+// The road goes where the picture is calmest: along the road line, plus the crossroads.
 function chooseRoad() {
     PIC.auto = null;
     if (!PIC.orig) return;
-    const saveK = M.k, saveRoad = M.road;
-    M.k = null; M.road = null;
-    const L0 = layout();
-    M.k = saveK; M.road = saveRoad;
-    const E = cellEnergy(L0);
-    let best = null;
-    for (let k = 1; k <= L0.n - 2; k++) for (let s = L0.sMin; s <= L0.sMax; s++) {
-        const tr = s - L0.m * L0.b, end = tr + (L0.n - 1) * L0.b;
-        let e = 0;
-        for (let r = s - L0.b; r < s + L0.b; r++) for (let c = 0; c < L0.C; c++) e += E[r][c];
-        for (let r = tr; r < end; r++) for (let c = k * L0.cpc; c < (k + 1) * L0.cpc; c++) e += E[r][c] * 1.5;
-        // a slight preference for the middle, where the hole looks best
-        e *= 1 + 0.15 * Math.abs(k - (L0.n - 1) / 2) + 0.2 * Math.abs(s / L0.R - 0.55);
-        if (!best || e < best.e) best = { e, k, s };
+    const saveRoad = M.road;
+    M.road = null;
+    let best = null, E = null;
+    for (let k = 1; k <= clamp(M.n, 3, 6) - 2; k++) {
+        const L = layout(k);
+        if (!E) E = cellEnergy(L);
+        const ref = L.prof[L.K0];
+        for (let s = L.sMin; s <= L.sMax; s++) {
+            let e = 0;
+            for (let c = 0; c < L.C; c++) {
+                const sc = s + L.prof[c] - ref;
+                for (let r = Math.max(0, sc - L.b); r < Math.min(L.R, sc + L.b); r++) e += E[r][c];
+                if (c >= L.K0 && c < L.K1) for (let r = sc - L.m * L.b; r < sc + (L.n - 1 - L.m) * L.b; r++) e += E[r][c] * 1.5;
+            }
+            // a slight preference for the middle, where the hole looks best
+            e *= 1 + 0.15 * Math.abs(k - (L.n - 1) / 2) + 0.2 * Math.abs(s / L.R - 0.55);
+            if (!best || e < best.e) best = { e, k, s };
+        }
     }
+    M.road = saveRoad;
     PIC.auto = best;
 }
 
-// make a tile seamless in both directions, so copies of it fit together edge to edge
-function seamless(src) {
-    const w = src.width, h = src.height;
-    const pass = (img, horiz) => {
-        const roll = canvasOf(w, h), r = roll.getContext("2d");
-        if (horiz) { const hx = Math.floor(w / 2); r.drawImage(img, hx, 0, w - hx, h, 0, 0, w - hx, h); r.drawImage(img, 0, 0, hx, h, w - hx, 0, hx, h); }
-        else { const hy = Math.floor(h / 2); r.drawImage(img, 0, hy, w, h - hy, 0, 0, w, h - hy); r.drawImage(img, 0, 0, w, hy, 0, h - hy, w, hy); }
-        const a = img.getContext("2d").getImageData(0, 0, w, h), b = r.getImageData(0, 0, w, h);
-        const out = canvasOf(w, h), o = out.getContext("2d"), od = o.createImageData(w, h);
-        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-            const t = horiz ? Math.min(x, w - 1 - x) / (w / 2) : Math.min(y, h - 1 - y) / (h / 2);
-            const al = Math.min(1, t * 1.6), i = (y * w + x) * 4;
-            for (let q = 0; q < 4; q++) od.data[i + q] = a.data[i + q] * al + b.data[i + q] * (1 - al);
-        }
-        o.putImageData(od, 0, 0);
-        return out;
-    };
-    return pass(pass(src, true), false);
+// distance from every point of the picture to the nearest seam between sections (grid of res px per mm)
+function seamDistance(L, res) {
+    const w = Math.ceil(M.W * res), h = Math.ceil(M.H * res);
+    const D = new Float32Array(w * h).fill(1e9);
+    const seed = (x, y) => { if (x >= 0 && y >= 0 && x < w && y < h) D[y * w + x] = 0; };
+    for (let r = 1; r < L.R; r++) for (let c = 0; c < L.C; c++) {
+        if (sectionOf(L, c, r - 1) === sectionOf(L, c, r)) continue;
+        const y = Math.round(r * L.ch * res);
+        for (let x = Math.floor(c * L.cw * res); x <= Math.ceil((c + 1) * L.cw * res); x++) { seed(x, y); seed(x, y - 1); }
+    }
+    for (let c = 1; c < L.C; c++) for (let r = 0; r < L.R; r++) {
+        if (sectionOf(L, c - 1, r) === sectionOf(L, c, r)) continue;
+        const x = Math.round(c * L.cw * res);
+        for (let y = Math.floor(r * L.ch * res); y <= Math.ceil((r + 1) * L.ch * res); y++) { seed(x, y); seed(x - 1, y); }
+    }
+    const S2 = Math.SQRT2;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x; let v = D[i];
+        if (x > 0) v = Math.min(v, D[i - 1] + 1);
+        if (y > 0) { v = Math.min(v, D[i - w] + 1); if (x > 0) v = Math.min(v, D[i - w - 1] + S2); if (x < w - 1) v = Math.min(v, D[i - w + 1] + S2); }
+        D[i] = v;
+    }
+    for (let y = h - 1; y >= 0; y--) for (let x = w - 1; x >= 0; x--) {
+        const i = y * w + x; let v = D[i];
+        if (x < w - 1) v = Math.min(v, D[i + 1] + 1);
+        if (y < h - 1) { v = Math.min(v, D[i + w] + 1); if (x < w - 1) v = Math.min(v, D[i + w + 1] + S2); if (x > 0) v = Math.min(v, D[i + w - 1] + S2); }
+        D[i] = v;
+    }
+    return { D, w, h, res };
 }
 
-// The road texture: one road tile is exactly one side-road section (a column wide, the slide high).
-// "plain": an even path in a colour taken from the picture; "picture": the picture's own texture along the road
-// (best when the road was painted in, by the artist or with AI).
-function roadTile(L) {
-    const k = PIC.pxPerMm, tw = Math.round(L.cpc * L.cw * k), th = Math.round(L.b * L.ch * k);
-    const src = canvasOf(tw, th), sx = src.getContext("2d");
-    if (M.roadStyle === "picture") {
-        // take it from the calmest column along the road
-        const E = cellEnergy(L);
-        let bestJ = 0, bestE = Infinity;
-        for (let j = 0; j < L.n; j++) {
-            let e = 0;
-            for (let r = L.s - L.b; r < L.s + L.b; r++) for (let c = j * L.cpc; c < (j + 1) * L.cpc; c++) e += E[r][c];
-            if (e < bestE) { bestE = e; bestJ = j; }
-        }
-        sx.drawImage(PIC.orig, Math.round(bestJ * L.cpc * L.cw * k), Math.round((L.s - L.b / 2) * L.ch * k), tw, th, 0, 0, tw, th);
-        return seamless(src);
-    }
-    // plain path: the band's average colour, a little lighter and calmer, with a fine seamless grain
-    const band = canvasOf(64, 8);
-    band.getContext("2d").drawImage(PIC.orig, 0, Math.round((L.s - 0.5) * L.ch * k), PIC.orig.width, Math.round(L.ch * k), 0, 0, 64, 8);
-    const bd = band.getContext("2d").getImageData(0, 0, 64, 8).data;
-    const ch3 = [0, 1, 2].map((q) => { const v = []; for (let i = q; i < bd.length; i += 4) v.push(bd[i]); v.sort((a, b) => a - b); return v[v.length >> 1]; });
-    const grey = (ch3[0] + ch3[1] + ch3[2]) / 3;
-    const base = ch3.map((v) => Math.min(235, (v * 0.55 + grey * 0.45) * 1.12 + 18));
-    const id = sx.createImageData(tw, th), rnd = mulberry32(M.seed * 13 + 5);
-    const waves = [];
-    for (let i = 0; i < 14; i++) waves.push({ fx: 1 + Math.floor(rnd() * 9), fy: 1 + Math.floor(rnd() * 5), ph: rnd() * 6.283, a: 2 + rnd() * 3 });
-    const fine = new Float32Array(tw * th);
-    for (let i = 0; i < fine.length; i++) fine[i] = (rnd() - 0.5) * 9;
-    for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
-        let n = 0;
-        for (const w of waves) n += w.a * Math.sin(6.2832 * (w.fx * x / tw + w.fy * y / th) + w.ph);
-        const i = (y * tw + x) * 4, g = n + fine[y * tw + x];
-        id.data[i] = base[0] + g; id.data[i + 1] = base[1] + g; id.data[i + 2] = base[2] + g * 0.9; id.data[i + 3] = 255;
-    }
-    sx.putImageData(id, 0, 0);
-    return src;
-}
-
-// Paint the road into the closed picture. Every seam that changes partners when the puzzle opens gets the
-// road texture on both sides, so any two sections meet seamlessly.
+// Paint the road along every seam. Sections meet other sections when the puzzle opens, so every seam
+// is painted the same way (an even road colour with a fine grain), and any two edges meet seamlessly.
+// "plain": a path in a colour taken from the picture; "picture": the picture's own road colour, with a
+// narrower blend (best after the road was painted into the picture with AI).
 function paintRoad(L) {
-    const k = PIC.pxPerMm, T = roadTile(L), tw = T.width, th = T.height;
-    const c = canvasOf(PIC.orig.width, PIC.orig.height), cx = c.getContext("2d");
-    cx.drawImage(PIC.orig, 0, 0);
-    const X = (col) => Math.round(col * L.cw * k), Y = (row) => Math.round(row * L.ch * k);
-    const fade = Math.max(4, Math.round(0.45 * L.ch * k));   // the road's soft edge
-    const alpha = (d) => Math.max(0, Math.min(1, 1.6 * (1 - d / fade)));
-    // rows just above a seam take the tile's last rows, rows just below take its first rows
-    const above = (x0, x1, y) => {
-        for (let d = 0; d < fade; d++) {
-            const yy = y - 1 - d; if (yy < 0) break;
-            cx.globalAlpha = alpha(d);
-            for (let x = x0; x < x1; x += tw) cx.drawImage(T, 0, th - 1 - (d % th), Math.min(tw, x1 - x), 1, x, yy, Math.min(tw, x1 - x), 1);
-        }
-    };
-    const below = (x0, x1, y) => {
-        for (let d = 0; d < fade; d++) {
-            const yy = y + d; if (yy >= c.height) break;
-            cx.globalAlpha = alpha(d);
-            for (let x = x0; x < x1; x += tw) cx.drawImage(T, 0, d % th, Math.min(tw, x1 - x), 1, x, yy, Math.min(tw, x1 - x), 1);
-        }
-    };
-    // the road across every column but the crossroads column
-    for (const j of L.donorCols) { above(X(j * L.cpc), X((j + 1) * L.cpc), Y(L.s)); below(X(j * L.cpc), X((j + 1) * L.cpc), Y(L.s)); }
-    // the side road: the stack of road tiles, and its ends fading into the picture
-    above(X(L.K0), X(L.K1), Y(L.tr));
-    below(X(L.K0), X(L.K1), Y(L.stackEnd));
-    // its sides: the column on the left ends in the tile's right edge, the column on the right starts with its left edge
-    const y0 = Y(L.tr), y1 = Y(L.stackEnd), fw = Math.min(tw, fade);
-    for (let d = 0; d < fw; d++) {
-        cx.globalAlpha = alpha(d * fade / fw);
-        for (let y = y0; y < y1; y += th) {
-            const hh = Math.min(th, y1 - y);
-            cx.drawImage(T, tw - 1 - (d % tw), 0, 1, hh, X(L.K0) - 1 - d, y, 1, hh);
-            cx.drawImage(T, d % tw, 0, 1, hh, X(L.K1) + d, y, 1, hh);
-        }
+    const k = PIC.pxPerMm, res = Math.min(3, k);
+    const { D, w, h } = seamDistance(L, res);
+    const fade = (M.roadStyle === "picture" ? 0.3 : 0.45) * Math.min(L.cw, L.ch) * res;
+    // road colour: the median of the picture along the seams
+    const small = canvasOf(w, h);
+    small.getContext("2d").drawImage(PIC.orig, 0, 0, w, h);
+    const sd = small.getContext("2d").getImageData(0, 0, w, h).data;
+    const vals = [[], [], []];
+    for (let i = 0; i < w * h; i += 3) if (D[i] < fade * 0.7) for (let q = 0; q < 3; q++) vals[q].push(sd[i * 4 + q]);
+    const med = vals.map((v) => { v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 160; });
+    const grey = (med[0] + med[1] + med[2]) / 3;
+    const base = M.roadStyle === "picture" ? med : med.map((v) => Math.min(235, (v * 0.55 + grey * 0.45) * 1.12 + 18));
+    // where the road goes: soft along the seams, solid on the side-road strips
+    const mask = canvasOf(w, h), mx = mask.getContext("2d"), md = mx.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        let a = Math.max(0, Math.min(1, 1.6 * (1 - D[i] / fade)));
+        const c = Math.floor(x / res / L.cw), r = Math.floor(y / res / L.ch);
+        if (sectionOf(L, Math.min(c, L.C - 1), Math.min(r, L.R - 1)) >= 2) a = 1;
+        md.data[i * 4 + 3] = Math.round(a * 255);
     }
-    cx.globalAlpha = 1;
-    for (let y = y0; y < y1; y += th) cx.drawImage(T, 0, 0, tw, Math.min(th, y1 - y), X(L.K0), y, X(L.K1) - X(L.K0), Math.min(th, y1 - y));
-    return c;
+    mx.putImageData(md, 0, 0);
+    // the road itself, at full size
+    const W = PIC.orig.width, H = PIC.orig.height;
+    const road = canvasOf(W, H), rx = road.getContext("2d"), rd = rx.createImageData(W, H), rnd = mulberry32(M.seed * 13 + 5);
+    for (let i = 0; i < W * H; i++) {
+        const g = (rnd() - 0.5) * 14 + (rnd() - 0.5) * 6;
+        rd.data[i * 4] = base[0] + g; rd.data[i * 4 + 1] = base[1] + g; rd.data[i * 4 + 2] = base[2] + g * 0.9; rd.data[i * 4 + 3] = 255;
+    }
+    rx.putImageData(rd, 0, 0);
+    rx.globalCompositeOperation = "destination-in";
+    rx.imageSmoothingQuality = "high";
+    rx.drawImage(mask, 0, 0, W, H);
+    const out = canvasOf(W, H), ox = out.getContext("2d");
+    ox.drawImage(PIC.orig, 0, 0);
+    ox.drawImage(road, 0, 0);
+    return out;
 }
 
 function rebuildPictures() {
@@ -402,56 +440,45 @@ function rebuildPictures() {
 }
 
 // clip a canvas context to a section's cells, shifted
-function clipSection(cx, L, i, off, k) {
+function clipRects(cx, rects, off, k) {
     cx.beginPath();
-    for (const q of sectionRects(L, i)) cx.rect((q.x + off.x) * k, (q.y + off.y) * k, q.w * k, q.h * k);
+    for (const q of rects) cx.rect((q.x + off.x) * k, (q.y + off.y) * k, q.w * k, q.h * k);
     cx.clip();
 }
 
-// The picture at one stage of opening: 0 closed, 1 B slid down, 2 tiles moved (hole empty), 3 secret in place.
+// The picture at one stage of opening: 0 closed, 1 B slid down, 2 strips moved (hole empty), 3 secret in place.
 // hole: null = transparent, or a fill colour.
 function compositeAt(stage, hole) {
     const L = layout(), k = PIC.pxPerMm;
     const c = canvasOf(M.W * k, (stage === 0 ? M.H : L.OH) * k), cx = c.getContext("2d");
     for (let i = 0; i < sectionCount(L); i++) {
         const off = offsetOf(L, i, stage);
-        cx.save(); clipSection(cx, L, i, off, k);
+        cx.save(); clipRects(cx, sectionRects(L, i), off, k);
         cx.drawImage(PIC.main, off.x * k, off.y * k);
         cx.restore();
     }
     if (stage >= 2) {
-        const hx = L.K0 * L.cw * k, hy = L.tr * L.ch * k, hw = L.cpc * L.cw * k, hh = L.n * L.b * L.ch * k;
-        if (stage === 3 && PIC.secret) cx.drawImage(PIC.secret, hx - L.bleed * k, hy - L.bleed * k);
-        else if (hole) { cx.fillStyle = hole; cx.fillRect(hx, hy, hw, hh); }
+        const hb = holeBox(L);
+        cx.save(); clipRects(cx, holeRects(L), { x: 0, y: 0 }, k);
+        if (stage === 3 && PIC.secret) cx.drawImage(PIC.secret, (hb.x - L.bleed) * k, (hb.y - L.bleed) * k);
+        else if (hole) { cx.fillStyle = hole; cx.fillRect(0, 0, c.width, c.height); }
+        cx.restore();
     }
     return c;
 }
 
-// The secret picture: the hole plus a margin for the knobs that reach into the neighbours.
+// The secret picture: the box around the hole plus a margin for the knobs that reach into the neighbours.
 // fromOpen: the image is the whole opened puzzle (AI result or filled-in template); else just the hole.
 function fitSecret(img, fromOpen) {
     PIC.secretSrc = img; PIC.secretFromOpen = !!fromOpen;
-    const L = layout(), k = PIC.pxPerMm, bl = L.bleed * k;
-    const hw = L.cpc * L.cw * k, hh = L.n * L.b * L.ch * k;
+    const L = layout(), k = PIC.pxPerMm, bl = L.bleed * k, hb = holeBox(L);
+    const hw = hb.w * k, hh = hb.h * k;
     const out = canvasOf(hw + 2 * bl, hh + 2 * bl), o = out.getContext("2d");
     if (fromOpen) {
         const full = coverCanvas(img, M.W * k, L.OH * k);
-        o.drawImage(full, L.K0 * L.cw * k - bl, L.tr * L.ch * k - bl, out.width, out.height, 0, 0, out.width, out.height);
+        o.drawImage(full, hb.x * k - bl, hb.y * k - bl, out.width, out.height, 0, 0, out.width, out.height);
     } else {
-        // only the hole was painted: cover the hole, then let its edges blend into the neighbours' edge colours
-        const inner = coverCanvas(img, hw, hh);
-        o.drawImage(inner, bl, bl);
-        const open = compositeAt(2, null);
-        const hx = L.K0 * L.cw * k, hy = L.tr * L.ch * k;
-        const band = Math.round(Math.min(hw, hh) * 0.12);
-        for (let d = 0; d < band; d++) {
-            o.globalAlpha = 1 - d / band;
-            o.drawImage(open, hx, hy - 1, hw, 1, bl, bl + d, hw, 1);               // top
-            o.drawImage(open, hx, hy + hh, hw, 1, bl, bl + hh - 1 - d, hw, 1);     // bottom
-            o.drawImage(open, hx - 1, hy, 1, hh, bl + d, bl, 1, hh);               // left
-            o.drawImage(open, hx + hw, hy, 1, hh, bl + hw - 1 - d, bl, 1, hh);     // right
-        }
-        o.globalAlpha = 1;
+        o.drawImage(coverCanvas(img, hw, hh), bl, bl);
         // the margin: stretch the outermost pixels
         o.drawImage(out, bl, bl, hw, 1, bl, 0, hw, bl);
         o.drawImage(out, bl, bl + hh - 1, hw, 1, bl, bl + hh, hw, bl);
@@ -475,8 +502,9 @@ function mainPrompt() {
     const L = layout(), ratio = (M.W / M.H).toFixed(2), at = Math.round((L.s / L.R) * 100);
     return "A detailed, busy illustration for a jigsaw puzzle, aspect ratio " + ratio + ":1. " +
         (M.styleText.trim() || "Colourful storybook style with lots of little characters.") +
-        " A wide, plain road (or a path, a river or a strip of meadow) runs straight across the whole picture, about " + at +
-        "% of the way down, with a short side road crossing it. Keep the road itself plain and even, with nothing on it.";
+        " A wide, plain road (or a path, a river or a strip of meadow) runs across the whole picture" +
+        (M.roadShape === "slant" ? ", sloping gently down from left to right," : M.roadShape === "wavy" ? ", gently winding," : "") +
+        " about " + at + "% of the way down, with a short side road crossing it. Keep the road itself plain and even, with nothing on it.";
 }
 
 // ------------------------------------------------------------------ AI (OpenAI image API, the user's own key)
@@ -587,8 +615,10 @@ async function aiRoad() {
     const c = canvasOf(PIC.orig.width, PIC.orig.height), cx = c.getContext("2d");
     cx.drawImage(PIC.orig, 0, 0);
     const Y = (r) => Math.round(r * L.ch * k), X = (col) => Math.round(col * L.cw * k);
-    cx.clearRect(0, Y(L.s - 0.5 * L.b), c.width, Y(L.b));
-    cx.clearRect(X(L.K0), Y(L.tr), X(L.cpc), Y(L.stackEnd - L.tr));
+    for (let col = 0; col < L.C; col++) {
+        cx.clearRect(X(col), Y(L.sAt(col) - 0.5 * L.b), X(col + 1) - X(col), Y(L.b));
+        if (col >= L.K0 && col < L.K1) cx.clearRect(X(col), Y(L.qTop(col)), X(col + 1) - X(col), Y((L.n - 1) * L.b));
+    }
     const out = await aiEdit(c, roadPrompt());
     // keep this layout: the road was painted for it
     M.k = L.k; M.road = L.s / L.R; M.roadStyle = "picture";
@@ -606,7 +636,7 @@ function render(animate) {
     const { L, board, secret } = buildModel();
     const stage = $("stage");
     const pad = 8, waitGap = 14;
-    const holeW = L.cpc * L.cw, holeH = L.n * L.b * L.ch;
+    const hb = holeBox(L), holeW = hb.w, holeH = hb.h;
     const viewH = M.showOpen ? L.OH : M.H + waitGap + holeH;
     stage.setAttribute("viewBox", [-pad, -pad, M.W + 2 * pad, viewH + 2 * pad].join(" "));
     const stageNow = M.showOpen ? 3 : 0;
@@ -615,9 +645,9 @@ function render(animate) {
     for (let i = 0; i < nSec; i++) {
         defs += '<clipPath id="clip' + i + '">' + sectionRects(L, i).map((q) => '<rect x="' + q.x + '" y="' + q.y + '" width="' + q.w + '" height="' + q.h + '"/>').join("") + "</clipPath>";
     }
-    defs += '<clipPath id="clipS"><rect x="' + (L.K0 * L.cw) + '" y="' + (L.tr * L.ch) + '" width="' + holeW + '" height="' + holeH + '"/></clipPath>';
+    defs += '<clipPath id="clipS">' + holeRects(L).map((q) => '<rect x="' + q.x + '" y="' + q.y + '" width="' + q.w + '" height="' + q.h + '"/>').join("") + "</clipPath>";
     const edgesFor = (model, i) => model.edges.filter((e) => e.secs.indexOf(i) >= 0);
-    const tint = ["#d9b98c", "#c9a675", "#e3c79b", "#dcc08f", "#e8cfa6", "#d2b283", "#e0c495", "#d6b88a"];
+    const tint = ["#d8b98f", "#b58f63", "#e7a978", "#9fb5a0", "#c9a3c4", "#a9bfd6", "#e2c46e", "#c4b39a"];
     // sections
     for (let i = 0; i < nSec; i++) {
         const off = offsetOf(L, i, stageNow);
@@ -638,15 +668,15 @@ function render(animate) {
     }
     // the secret pieces: waiting below the puzzle while it's closed, in the hole when it's open
     {
-        const off = M.showOpen ? { x: 0, y: 0 } : { x: 0, y: M.H + waitGap - L.tr * L.ch };
+        const off = M.showOpen ? { x: 0, y: 0 } : { x: 0, y: M.H + waitGap - hb.y };
         const delay = M.showOpen ? 0.8 + (L.n - 1) * 0.35 + 0.3 : 0;
         let g = '<g class="region secret' + (M.showOpen ? "" : " waiting") + '" style="transform: translate(' + off.x + "px," + off.y + "px); transition-delay:" + delay + 's">';
         g += '<g clip-path="url(#clipS)">' + (PIC.secretUrl ?
-            '<image href="' + PIC.secretUrl + '" x="' + (L.K0 * L.cw - L.bleed) + '" y="' + (L.tr * L.ch - L.bleed) + '" width="' + (holeW + 2 * L.bleed) + '" height="' + (holeH + 2 * L.bleed) + '" preserveAspectRatio="none"/>' :
-            '<rect class="blank secretblank" x="' + (L.K0 * L.cw) + '" y="' + (L.tr * L.ch) + '" width="' + holeW + '" height="' + holeH + '"/>') + "</g>";
+            '<image href="' + PIC.secretUrl + '" x="' + (hb.x - L.bleed) + '" y="' + (hb.y - L.bleed) + '" width="' + (holeW + 2 * L.bleed) + '" height="' + (holeH + 2 * L.bleed) + '" preserveAspectRatio="none"/>' :
+            '<rect class="blank secretblank" x="' + hb.x + '" y="' + hb.y + '" width="' + holeW + '" height="' + holeH + '"/>') + "</g>";
         if (M.showCuts) g += '<g class="cuts">' + secret.edges.filter((e) => e.kind === "knob").map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
         g += '<g class="secline">' + secret.edges.filter((e) => e.secs.length === 1).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
-        g += '<text class="tag star" x="' + (L.K0 * L.cw + holeW / 2) + '" y="' + (L.tr * L.ch + holeH / 2) + '">★</text>';
+        g += '<text class="tag star" x="' + (hb.x + holeW / 2) + '" y="' + (L.qTop(L.K0 + (L.cpc >> 1)) + L.n * L.b / 2) * L.ch + '">★</text>';
         body += g + "</g>";
     }
     // where the hole will be, and the outline of the opened puzzle
@@ -695,7 +725,7 @@ function renderSteps(L) {
 
 // ------------------------------------------------------------------ export
 // cut file: the closed puzzle, and the secret pieces beside it
-function secretOrigin(L) { return { x: M.W + 10 - L.K0 * L.cw, y: L.bleed - L.tr * L.ch }; }
+function secretOrigin(L) { const hb = holeBox(L); return { x: M.W + 10 + L.bleed - hb.x, y: L.bleed - hb.y }; }
 
 function cutPaths() {
     const { L, board, secret } = MODEL || buildModel();
@@ -703,7 +733,7 @@ function cutPaths() {
     board.edges.forEach((e) => { if (e.secs.length === 2) out.push(edgeD(e)); });
     const o = secretOrigin(L);
     secret.edges.forEach((e) => out.push(edgeD(e, o.x, o.y)));
-    return { paths: out, W: M.W + 10 + L.cpc * L.cw + L.bleed, H: Math.max(M.H, L.n * L.b * L.ch + 2 * L.bleed) };
+    return { paths: out, W: M.W + 10 + holeBox(L).w + 2 * L.bleed, H: Math.max(M.H, holeBox(L).h + 2 * L.bleed) };
 }
 
 function cutSvg() {
@@ -726,7 +756,7 @@ function printCanvas() {
     const c = canvasOf(cp.W * k, cp.H * k), cx = c.getContext("2d");
     cx.fillStyle = "#fff"; cx.fillRect(0, 0, c.width, c.height);
     cx.drawImage(PIC.main, 0, 0);
-    if (PIC.secret) cx.drawImage(PIC.secret, (M.W + 10 - L.bleed) * k, 0);
+    if (PIC.secret) cx.drawImage(PIC.secret, (M.W + 10) * k, 0);
     return c;
 }
 function downloadPrint() {
@@ -764,7 +794,7 @@ function sheetCanvas() {
         cx.lineWidth = 3; cx.strokeStyle = "#7a2e8f";
         for (let i = 0; i < sectionCount(L); i++) {
             const off = offsetOf(L, i, Math.min(stage, 2));
-            if (!PIC.main) { cx.fillStyle = ["#d9b98c", "#c9a675", "#e3c79b", "#dcc08f", "#e8cfa6", "#d2b283", "#e0c495"][i % 7]; }
+            if (!PIC.main) { cx.fillStyle = ["#d8b98f", "#b58f63", "#e7a978", "#9fb5a0", "#c9a3c4", "#a9bfd6", "#e2c46e"][i % 7]; }
             for (const q of sectionRects(L, i)) {
                 if (!PIC.main) cx.fillRect(px + (q.x + off.x) * mmk, py + (q.y + off.y) * mmk, q.w * mmk, q.h * mmk);
             }
@@ -778,7 +808,7 @@ function sheetCanvas() {
         }
         // arrows
         cx.strokeStyle = "#1f8fbf"; cx.fillStyle = "#1f8fbf"; cx.lineWidth = 5;
-        if (p === 1) arrow(cx, px + M.W * 0.5 * mmk, py + (L.R - 1) * L.ch * mmk, px + M.W * 0.5 * mmk, py + (L.R - 1 + L.b * 1.6) * L.ch * mmk);
+        if (p === 1) { const bc = sectionCentre(L, 1); arrow(cx, px + bc.x * mmk, py + (bc.y + L.ch * 0.6) * mmk, px + bc.x * mmk, py + (bc.y + L.ch * (0.6 + L.b * 1.2)) * mmk); }
         if (p === 2) for (let t = 0; t < L.n - 1; t++) {
             const from = sectionCentre(L, 2 + t), o = offsetOf(L, 2 + t, 2), to = { x: from.x + o.x, y: from.y + o.y };
             const dir = Math.sign(to.x - from.x), gap = L.cpc * L.cw * 0.28;
@@ -787,7 +817,7 @@ function sheetCanvas() {
         if (p === 3) {
             cx.font = "700 60px 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle";
             cx.fillStyle = "#f2c230"; cx.strokeStyle = "#2a2320"; cx.lineWidth = 4;
-            const sx = px + (L.K0 + L.cpc / 2) * L.cw * mmk, sy = py + (L.tr + L.n * L.b / 2) * L.ch * mmk;
+            const sx = px + (L.K0 + L.cpc / 2) * L.cw * mmk, sy = py + (L.qTop(L.K0 + (L.cpc >> 1)) + L.n * L.b / 2) * L.ch * mmk;
             if (!PIC.secret) { cx.strokeText("★", sx, sy); cx.fillText("★", sx, sy); }
             cx.textBaseline = "alphabetic";
         }
@@ -838,13 +868,13 @@ function downloadSheet() {
 }
 
 // ------------------------------------------------------------------ saving in this browser
-const SAVE_KEYS = ["W", "H", "n", "bandRows", "k", "road", "roadStyle", "piece", "knob", "seed", "secretText", "styleText", "showCuts", "showSections"];
+const SAVE_KEYS = ["W", "H", "n", "bandRows", "roadShape", "k", "road", "roadStyle", "piece", "knob", "seed", "secretText", "styleText", "showCuts", "showSections"];
 let saveTimer = null;
 function scheduleSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         try {
-            const s = { v: 2 };
+            const s = { v: 3 };
             SAVE_KEYS.forEach((k) => { s[k] = M[k]; });
             localStorage.setItem("jw-magic-settings", JSON.stringify(s));
         } catch (e) { /* storage blocked */ }
@@ -854,8 +884,8 @@ function loadSaved() {
     try {
         const s = JSON.parse(localStorage.getItem("jw-magic-settings") || "null");
         if (!s) return;
-        ["W", "H", "piece", "knob", "seed", "secretText", "styleText", "showCuts"].forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
-        if (s.v === 2) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
+        ["W", "H", "knob", "seed", "secretText", "styleText", "showCuts"].forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
+        if (s.v === 3) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
         M.n = clamp(M.n, 3, 6);
     } catch (e) { /* ignore */ }
 }
@@ -887,7 +917,13 @@ function updateLayoutUI(L) {
     let html = '<option value="auto">Auto' + (PIC.auto ? " (column " + (L.k + 1) + ")" : "") + "</option>";
     for (let j = 1; j <= L.n - 2; j++) html += '<option value="' + j + '">Column ' + (j + 1) + " of " + L.n + "</option>";
     sel.innerHTML = html; sel.value = want;
+    document.querySelectorAll("#shapeSeg button").forEach((b) => {
+        b.setAttribute("aria-pressed", b.dataset.v === M.roadShape);
+        b.disabled = false;
+    });
+    $("shapeNote").hidden = !(M.roadShape !== "straight" && L.g === 0);
     $("holeOut").textContent = Math.round(L.cpc * L.cw) + " × " + Math.round(L.n * L.b * L.ch) + " mm";
+    $("mB").value = L.b;
 }
 
 function syncInputs() {
@@ -919,6 +955,7 @@ function init() {
     $("mB").addEventListener("change", () => { M.bandRows = parseInt($("mB").value); chooseRoad(); relayout(); });
     $("mK").addEventListener("change", () => { const v = $("mK").value; M.k = v === "auto" ? null : parseInt(v); relayout(); });
     $("mRoad").addEventListener("input", () => { const L = layout(); M.road = parseInt($("mRoad").value) / L.R; relayout(); });
+    document.querySelectorAll("#shapeSeg button").forEach((b) => b.addEventListener("click", () => { M.roadShape = b.dataset.v; M.road = null; chooseRoad(); relayout(); }));
     $("roadAuto").addEventListener("click", () => { M.road = null; M.k = null; relayout(); });
     $("mPiece").addEventListener("input", () => { M.piece = +$("mPiece").value; $("mPieceOut").textContent = M.piece + " mm"; chooseRoad(); relayout(); });
     document.querySelectorAll("#roadSeg button").forEach((b) => b.addEventListener("click", () => { M.roadStyle = b.dataset.v; relayout(); }));

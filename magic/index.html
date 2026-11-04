@@ -476,7 +476,9 @@
         #stage .cuts path { fill: none; stroke: rgba(255,255,255,.9); stroke-width: 1.1px; vector-effect: non-scaling-stroke; }
         #stage.nopic .cuts path { stroke: var(--cut); }
         .toolbar .seg { min-width: 180px; }
-        #stage .secline path { fill: none; stroke: var(--cut); stroke-width: 1.6px; vector-effect: non-scaling-stroke; }
+        #stage .secline path { fill: none; stroke: #5b2a6e; stroke-width: 2.6px; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+        #stage .secret .secline path { stroke: #b8860b; }
+        #stage.nopic .cuts path { stroke: rgba(60,40,25,.55); }
         #stage .tag { fill: #fff; stroke: rgba(40,30,25,.75); stroke-width: 3px; paint-order: stroke; font: 700 34px var(--font-display); text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
         #stage .tag.small { font-size: 18px; }
         #stage .tag.star { fill: #f2c230; font-size: 30px; }
@@ -510,7 +512,7 @@
                 </div>
                 <div class="row2">
                     <div class="field">
-                        <label class="label" for="mN">Columns</label>
+                        <label class="label" for="mN">Road parts</label>
                         <select id="mN" class="btn" style="text-align:left">
                             <option value="3">3</option>
                             <option value="4">4</option>
@@ -523,18 +525,28 @@
                         <select id="mB" class="btn" style="text-align:left">
                             <option value="1">1 row</option>
                             <option value="2">2 rows</option>
+                            <option value="3">3 rows</option>
                         </select>
                     </div>
                 </div>
+                <div class="field">
+                    <span class="label">Road shape (the seams follow it)</span>
+                    <div class="seg" id="shapeSeg" role="group" aria-label="Road shape">
+                        <button type="button" data-v="slant" aria-pressed="true">Slanted</button>
+                        <button type="button" data-v="wavy" aria-pressed="false">Zigzag</button>
+                        <button type="button" data-v="straight" aria-pressed="false">Straight</button>
+                    </div>
+                    <p class="hint" id="shapeNote" hidden>The road can only slant when B slides at least 2 rows (otherwise the strips would fall apart), so it's straight now.</p>
+                </div>
                 <div class="range">
-                    <label class="label" for="mRoad">Road</label>
+                    <label class="label" for="mRoad">Road height</label>
                     <input type="range" id="mRoad" min="1" max="9" step="1">
                     <output id="mRoadOut"></output>
                 </div>
                 <div class="field">
                     <label class="label" for="mK">Crossroads (where the hole appears)</label>
                     <select id="mK" class="btn" style="text-align:left"></select>
-                    <p class="hint">Hole: <strong id="holeOut"></strong>. More columns give a taller hole. <button type="button" class="linkbtn" id="roadAuto">Choose from the picture</button></p>
+                    <p class="hint">Hole: <strong id="holeOut"></strong>. More road parts give a taller hole. <button type="button" class="linkbtn" id="roadAuto">Choose from the picture</button></p>
                 </div>
                 <div class="range">
                     <label class="label" for="mPiece">Piece size</label>

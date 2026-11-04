@@ -2,7 +2,8 @@
 //
 // How the trick works (the same idea as the Magic Puzzle Company puzzles):
 //  - The finished puzzle is a jigsaw with a road running across it, usually on a slant, so the sections
-//    have stepped, slanted edges. In one place a short side road crosses it: a stack of slanted strips.
+//    have long straight, slanted edges; the pieces along a seam are cut straight, like edge pieces. In one
+//    place a short side road crosses it: a stack of slanted strips.
 //  - To open it, everything below the road (section B) slides down a row or two. That opens a gap that
 //    follows the road. The side-road strips (C, D, …) are lifted out and laid into that gap.
 //  - Where the side road was there is now a slanted hole in the middle of the picture. The secret pieces
@@ -15,8 +16,8 @@ const LETTERS = "ABCDEFGHIJ";
 
 const M = {
     W: 400, H: 300,             // closed puzzle, mm
-    n: 3,                       // the road is cut into n parts; n - 1 of them are side-road strips
-    bandRows: 2,                // how many rows section B slides down
+    n: 4,                       // the road is cut into n parts; n - 1 of them are side-road strips
+    bandRows: 1,                // how many rows section B slides down
     roadShape: "slant",         // straight | slant | wavy
     k: null,                    // hole column (null = choose from the picture)
     road: null,                 // road height at the hole, as a fraction of the height (null = from the picture)
@@ -44,93 +45,96 @@ const PIC = {
 // ------------------------------------------------------------------ layout
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// The road's height in each grid column, relative. It repeats from part to part, so every side-road strip
-// has the same shape and fits every slot along the road. "slant": inside each part the road runs down at a
-// slant and steps back up where two parts meet, so the strips are slanted parallelograms; "wavy": a zigzag.
-// A strip stays in one piece only if the road moves less than the slide (b rows) from column to column.
-function roadProfile(shape, C, cpc, b, g) {
-    const p = [];
-    for (let c = 0; c < C; c++) {
-        const i = c % cpc;
-        if (shape === "slant" && b >= 2) p.push(Math.floor(((i + 0.5) * g) / cpc));
-        else if (shape === "wavy" && b >= 2) p.push(Math.min(Math.min(i, cpc - 1 - i), g));
-        else p.push(0);
-    }
-    return p;
-}
-
-// the road heights at the hole column that keep a row of puzzle above and below everything
-function roadRange(prof, k, cpc, C, R, n, b, m) {
-    let lo = 1, hi = R - 1;
-    const ref = prof[k * cpc];
-    for (let c = 0; c < C; c++) {
-        const d = prof[c] - ref;
-        lo = Math.max(lo, 1 - d); hi = Math.min(hi, R - 1 - d);
-        if (c >= k * cpc && c < (k + 1) * cpc) { lo = Math.max(lo, 1 + m * b - d); hi = Math.min(hi, R - 1 - (n - 1 - m) * b - d); }
-    }
-    return [lo, hi];
-}
-
+// Everything is in mm, y pointing down. The puzzle is split into n parts side by side, each P wide.
+// The road line s(x) is the same in every part (it repeats), so a strip cut from the crossroads fits
+// every slot along the road. "slant": down across each part, then straight back up at the part's edge;
+// "wavy": a zigzag; "straight": level.
 function layout(forceK) {
     const n = clamp(M.n, 3, 6), b = clamp(M.bandRows, 1, 3);
     const cpc = Math.max(2, Math.round(M.W / n / M.piece));
-    const C = n * cpc;
-    const R = Math.max((n - 1) * b + 3, Math.round(M.H / M.piece));
-    const cw = M.W / C, ch = M.H / R;
-    const m = Math.floor((n - 1) / 2);                       // side-road strips above the road
+    const C = n * cpc, P = M.W / n, cw = P / cpc;
+    const R = Math.max(3, Math.round(M.H / M.piece)), ch = M.H / R;
+    const d = b * ch;                                         // how far B slides, = the strips' height
+    const m = Math.floor((n - 1) / 2);                        // strips above the road
     let k = forceK != null ? forceK : M.k != null ? M.k : PIC.auto ? PIC.auto.k : Math.floor((n - 1) / 2);
     k = clamp(k, 1, n - 2);
-    // the steepest slant (up to about a third of the height) that still fits
-    // as steep as fits: up to one row per column for slanted, a few rows high for wavy
-    let g = b < 2 ? 0 : M.roadShape === "slant" ? Math.min(cpc * (b - 1), Math.round(0.45 * R)) : M.roadShape === "wavy" ? Math.min(cpc >> 1, 3) : 0;
-    let prof, range;
-    for (;;) {
-        prof = roadProfile(g === 0 ? "straight" : M.roadShape, C, cpc, b, g);
-        range = roadRange(prof, k, cpc, C, R, n, b, m);
-        if (range[0] <= range[1] || g === 0) break;
-        g--;
-    }
-    if (range[0] > range[1]) { prof = new Array(C).fill(0); range = roadRange(prof, k, cpc, C, R, n, b, m); }
-    let s = M.road != null ? Math.round(M.road * R) : PIC.auto && forceK == null ? PIC.auto.s : Math.round(R * 0.55);
-    s = clamp(s, range[0], range[1]);
-    const K0 = k * cpc, K1 = (k + 1) * cpc, ref = prof[K0];
-    const sAt = (c) => s + prof[c] - ref;                 // first row below the road, per column
-    const qTop = (c) => sAt(c) - m * b;                   // top of the side-road stack (hole columns)
-    let holeTop = Infinity, holeBot = -Infinity;
-    for (let c = K0; c < K1; c++) { holeTop = Math.min(holeTop, qTop(c)); holeBot = Math.max(holeBot, qTop(c) + n * b); }
+    const mrg = 0.75 * ch;                                    // keep most of a row of puzzle above and below
+    const room = M.H - 2 * mrg - (n - 1) * d;
+    let g = M.roadShape === "slant" ? Math.min(P * 0.75, room - 0.3 * ch) : M.roadShape === "wavy" ? Math.min(P * 0.3, room - 0.3 * ch, 1.2 * ch) : 0;
+    g = Math.max(0, g);
+    const peak = Math.max(1, Math.round(cpc / 2)) * cw;      // zigzag turns on a column line
+    const f = (u) => M.roadShape === "slant" ? (g * u) / P :
+        M.roadShape === "wavy" ? (u <= peak ? (g * u) / peak : (g * (P - u)) / (P - peak)) : 0;
+    const sMin = mrg + m * d, sMax = M.H - mrg - g - (n - 1 - m) * d;
+    let s0 = M.road != null ? M.road * M.H : PIC.auto && forceK == null ? PIC.auto.s : M.H * 0.5 - g / 2;
+    s0 = sMax >= sMin ? clamp(s0, sMin, sMax) : (sMin + sMax) / 2;
+    // the part a point belongs to; at a part edge, side -1 means the part on the left
+    const partOf = (x, side) => clamp(side < 0 ? Math.ceil(x / P - 1e-9) - 1 : Math.floor(x / P + 1e-9), 0, n - 1);
+    const sAt = (x, side) => { const j = partOf(x, side || 1); return s0 + f(x - j * P); };
+    const qAt = (x, side) => sAt(x, side) - m * d;           // top of the crossroads strips (part k)
+    const kx0 = k * P, kx1 = (k + 1) * P;
     const donorCols = [];
     for (let j = 0; j < n; j++) if (j !== k) donorCols.push(j);
     return {
-        n, b, cpc, C, R, cw, ch, m, k, s, g, prof, sAt, qTop,
-        sMin: range[0], sMax: range[1],
-        K0, K1, holeTop, holeBot,
+        n, b, cpc, C, R, cw, ch, P, d, m, k, g, s: s0, sMin, sMax, sAt, qAt, partOf,
+        K0: k * cpc, K1: (k + 1) * cpc, kx0, kx1,
+        holeTop: s0 - m * d, holeBot: s0 - m * d + g + n * d,
         donorCols,
-        OH: M.H + b * ch,                     // opened height
+        OH: M.H + d,                          // opened height
         bleed: 0.4 * Math.min(cw, ch),        // picture margin around the secret pieces, for the knobs
     };
 }
 
-// which section a cell belongs to when the puzzle is closed: 0 = A above the road, 1 = B below, 2.. side-road strips
-function sectionOf(L, c, r) {
-    if (c >= L.K0 && c < L.K1) {
-        const q = L.qTop(c);
-        if (r >= q && r < q + (L.n - 1) * L.b) return 2 + Math.floor((r - q) / L.b);
-    }
-    return r < L.sAt(c) ? 0 : 1;
+// The regions: each lies over an x range between a top and a bottom line.
+// 0 = A above the road, 1 = B below it, 2.. = crossroads strips; "S" = the hole (opened coordinates).
+function regionOf(L, i) {
+    const inK = (x, side) => L.partOf(x, side) === L.k;
+    if (i === 0) return { x0: 0, x1: M.W, top: () => 0, bot: (x, sd) => (inK(x, sd) ? L.qAt(x, sd) : L.sAt(x, sd)) };
+    if (i === 1) return { x0: 0, x1: M.W, top: (x, sd) => (inK(x, sd) ? L.qAt(x, sd) + (L.n - 1) * L.d : L.sAt(x, sd)), bot: () => M.H };
+    if (i === "S") return { x0: L.kx0, x1: L.kx1, top: (x, sd) => L.qAt(x, sd), bot: (x, sd) => L.qAt(x, sd) + L.n * L.d };
+    const t = i - 2;
+    return { x0: L.kx0, x1: L.kx1, top: (x, sd) => L.qAt(x, sd) + t * L.d, bot: (x, sd) => L.qAt(x, sd) + (t + 1) * L.d };
 }
-// cells of the hole, in opened coordinates
-function inHole(L, c, r) { return c >= L.K0 && c < L.K1 && r >= L.qTop(c) && r < L.qTop(c) + L.n * L.b; }
+// inside part k the lines must be read from inside the part, also at its edges
+function regionTop(L, rg, x, side) { return rg.top(clamp(x, rg.x0, rg.x1), x <= rg.x0 ? 1 : x >= rg.x1 ? -1 : side); }
+function regionBot(L, rg, x, side) { return rg.bot(clamp(x, rg.x0, rg.x1), x <= rg.x0 ? 1 : x >= rg.x1 ? -1 : side); }
+
+function sectionAt(L, x, y) {
+    const j = L.partOf(x, 1);
+    if (j === L.k) {
+        const q = L.qAt(x, 1);
+        if (y >= q && y < q + (L.n - 1) * L.d) return 2 + Math.floor((y - q) / L.d);
+        return y < q ? 0 : 1;
+    }
+    return y < L.sAt(x, 1) ? 0 : 1;
+}
 function sectionCount(L) { return 2 + (L.n - 1); }
 function sectionLetter(i) { return LETTERS[i]; }
+
+// the outline of a region as a polygon (lines are straight between column lines)
+function regionPolygon(L, i) {
+    const rg = regionOf(L, i), xs = [];
+    for (let c = 0; c <= L.C; c++) { const x = c * L.cw; if (x >= rg.x0 - 1e-6 && x <= rg.x1 + 1e-6) xs.push(x); }
+    const pts = [];
+    xs.forEach((x, idx) => { if (idx > 0) pts.push({ x, y: regionTop(L, rg, x, -1) }); if (idx < xs.length - 1) pts.push({ x, y: regionTop(L, rg, x, 1) }); });
+    for (let idx = xs.length - 1; idx >= 0; idx--) {
+        const x = xs[idx];
+        if (idx < xs.length - 1) pts.push({ x, y: regionBot(L, rg, x, 1) });
+        if (idx > 0) pts.push({ x, y: regionBot(L, rg, x, -1) });
+    }
+    return pts;
+}
+function polyPath(pts, ox, oy, s) {
+    return pts.map((p, i) => (i ? "L " : "M ") + ((p.x + (ox || 0)) * (s || 1)).toFixed(3) + " " + ((p.y + (oy || 0)) * (s || 1)).toFixed(3)).join(" ") + " Z";
+}
 
 // how far a section moves when the puzzle is opened; stage 0 closed, 1 B slid down, 2 strips moved
 function offsetOf(L, i, stage) {
     if (i === 0 || stage === 0) return { x: 0, y: 0 };
-    if (i === 1) return { x: 0, y: L.b * L.ch };
+    if (i === 1) return { x: 0, y: L.d };
     if (stage < 2) return { x: 0, y: 0 };
-    const t = i - 2, j = L.donorCols[t], dc = (j - L.k) * L.cpc;
-    const rows = L.sAt(L.K0 + dc) - (L.qTop(L.K0) + t * L.b);
-    return { x: dc * L.cw, y: rows * L.ch };
+    const t = i - 2, j = L.donorCols[t];
+    return { x: (j - L.k) * L.P, y: (L.m - t) * L.d };
 }
 
 // ------------------------------------------------------------------ pieces
@@ -162,125 +166,130 @@ function knobGeometry(v1, v2, k) {
 
 const f3 = (p) => p.x.toFixed(3) + " " + p.y.toFixed(3);
 
-// path for an edge, optionally shifted; kinds: line, knob (random, from e.k), seam (fixed knob pointing down / right)
+// path for an edge, optionally shifted. kinds:
+//  line  - straight
+//  knob  - an ordinary jigsaw knob (random shape from e.k)
+//  seam  - a seam between sections: straight along the road, with one small tooth per column that points
+//          straight down, so sections lift apart and slide, and drop into place in either arrangement
 function edgeD(e, ox, oy) {
     const sh = (p) => ({ x: p.x + (ox || 0), y: p.y + (oy || 0) });
     const v1 = sh(e.v1), v2 = sh(e.v2);
     if (e.kind === "line") return "M " + f3(v1) + " L " + f3(v2);
     const L = Math.hypot(v2.x - v1.x, v2.y - v1.y);
+    if (e.kind === "seam") {
+        const at = (l, w) => ({ x: v1.x + l * (v2.x - v1.x), y: v1.y + l * (v2.y - v1.y) + w });
+        const a = 0.2, c = 0.05, h = e.r * 1.1;
+        return "M " + [at(0, 0), at(0.5 - a, 0), at(0.5 - a + c, h), at(0.5 + a - c, h), at(0.5 + a, 0), at(1, 0)].map(f3).join(" L ");
+    }
     const r = Math.min(e.r, 0.16 * L);
     if (r < 1.5) return "M " + f3(v1) + " L " + f3(v2);
-    if (e.kind === "seam") {
-        // a tooth that doesn't lock: the sections can slide apart and still sit in place, like the seams in the box
-        const dl = { x: (v2.x - v1.x) / L, y: (v2.y - v1.y) / L }, dw = { x: -dl.y, y: dl.x };
-        const at = (l, w) => ({ x: v1.x + l * L * dl.x + w * dw.x, y: v1.y + l * L * dl.y + w * dw.y });
-        const a = 0.2, c = 0.05, d = r * 1.1;
-        return "M " + [at(0, 0), at(0.5 - a, 0), at(0.5 - a + c, d), at(0.5 + a - c, d), at(0.5 + a, 0), at(1, 0)].map(f3).join(" L ");
-    }
-    const k = e.kind === "seam" ? { t: r / L, m: 0.5, flip: false, a: 0, d: 0, e: 0 } :
-        { t: (r / L) * (1 + e.k.j), m: e.k.m, flip: e.k.flip, a: e.k.a, d: e.k.d, e: e.k.e };
+    const k = { t: (r / L) * (1 + e.k.j), m: e.k.m, flip: e.k.flip, a: e.k.a, d: e.k.d, e: e.k.e };
     return "M " + f3(v1) + " " + knobGeometry(v1, v2, k).map((s) => "C " + s.map(f3).join(" ")).join(" ");
 }
 
-// A grid of cells cols c0..c1, rows r0..r1 (lattice units). cellSec(c, r) names the section of a cell.
-// Returns the corner points and the edges, each edge knowing the sections on its two sides.
-function gridModel(L, c0, c1, r0, r1, cellSec, rnd, hSeamBoundary) {
-    const jit = 0.08, rad = (M.knob / 100) * Math.min(L.cw, L.ch);
-    const inside = (c, r) => c >= c0 && c < c1 && r >= r0 && r < r1;
-    const secAt = (c, r) => (inside(c, r) ? cellSec(c, r) : null);
-    // a corner may only wobble when every edge meeting it is an ordinary edge inside one section
-    const free = (c, r) => {
-        if (c <= c0 || c >= c1 || r <= r0 || r >= r1) return false;
-        const a = secAt(c - 1, r - 1), b = secAt(c, r - 1), d = secAt(c - 1, r), e = secAt(c, r);
-        return a !== null && a === b && b === d && d === e;
-    };
-    const P = [];
-    for (let r = r0; r <= r1; r++) {
-        const row = [];
-        for (let c = c0; c <= c1; c++) {
-            let x = c * L.cw, y = r * L.ch;
-            const jx = rnd(), jy = rnd();
-            if (free(c, r)) { x += (jx - 0.5) * 2 * jit * L.cw; y += (jy - 0.5) * 2 * jit * L.ch; }
-            row.push({ x, y });
-        }
-        P.push(row);
-    }
-    const pt = (c, r) => P[r - r0][c - c0];
-    const knobParams = () => {
-        const j = () => (rnd() - 0.5) * 0.08;
-        return { j: j(), m: 0.5 + j(), flip: rnd() > 0.5, a: j(), d: j(), e: j() };
-    };
+// Cut regions into pieces. Columns follow the grid; inside a column, a region is cut across only on grid
+// rows that are far enough from its top and bottom lines, so pieces along a seam keep one straight side
+// (like edge pieces) instead of becoming slivers. regions: list of region ids; label(x, y) names the
+// region at a point. Returns the edges, each knowing the regions on its two sides, and the piece count.
+function cutRegions(L, ids, label, rnd, outline) {
+    const rad = (M.knob / 100) * Math.min(L.cw, L.ch), gap = 0.42 * L.ch;
+    const knob = () => { const j = () => (rnd() - 0.5) * 0.08; return { j: j(), m: 0.5 + j(), flip: rnd() > 0.5, a: j(), d: j(), e: j() }; };
     const edges = [];
-    for (let r = r0; r <= r1; r++) for (let c = c0; c < c1; c++) {
-        const up = secAt(c, r - 1), dn = secAt(c, r), kp = knobParams();
-        if (up === null && dn === null) continue;
-        const e = { v1: pt(c, r), v2: pt(c + 1, r), r: rad, secs: [up, dn].filter((x) => x !== null), h: true, row: r };
-        if (up === null || dn === null) e.kind = hSeamBoundary ? "seam" : "line";
-        else if (up === dn) { e.kind = "knob"; e.k = kp; }
-        else e.kind = "seam";
-        edges.push(e);
-    }
-    for (let c = c0; c <= c1; c++) for (let r = r0; r < r1; r++) {
-        const lf = secAt(c - 1, r), rt = secAt(c, r), kp = knobParams();
-        if (lf === null && rt === null) continue;
-        const e = { v1: pt(c, r), v2: pt(c, r + 1), r: rad, secs: [lf, rt].filter((x) => x !== null), h: false };
-        if (lf === null || rt === null || lf !== rt) e.kind = "line";
-        else { e.kind = "knob"; e.k = kp; }
-        edges.push(e);
-    }
+    const cuts = {};                  // cuts[id][c] = rows (y) where column c of the region is cut across
     let pieces = 0;
-    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) if (secAt(c, r) !== null) pieces++;
+    for (const id of ids) {
+        const rg = regionOf(L, id);
+        cuts[id] = {};
+        for (let c = 0; c < L.C; c++) {
+            const xa = c * L.cw, xb = (c + 1) * L.cw;
+            if (xa < rg.x0 - 1e-6 || xb > rg.x1 + 1e-6) continue;
+            const tA = regionTop(L, rg, xa, 1), tB = regionTop(L, rg, xb, -1), bA = regionBot(L, rg, xa, 1), bB = regionBot(L, rg, xb, -1);
+            const ys = [];
+            for (let r = 1; r < L.R + 2; r++) {
+                const y = r * L.ch;
+                if (y - Math.max(tA, tB) >= gap && Math.min(bA, bB) - y >= gap) ys.push(y);
+            }
+            cuts[id][c] = ys;
+            pieces += ys.length + 1;
+            ys.forEach((y) => edges.push({ v1: { x: xa, y }, v2: { x: xb, y }, kind: "knob", k: knob(), r: rad, secs: [id] }));
+            // the region's top line in this column: a seam if another region is above, else the outline
+            const above = label(xa + L.cw / 2, (tA + tB) / 2 - 0.01);
+            const below = label(xa + L.cw / 2, (bA + bB) / 2 + 0.01);
+            if (above === null) edges.push({ v1: { x: xa, y: tA }, v2: { x: xb, y: tB }, kind: outline.hSeam ? "seam" : "line", r: rad, secs: [id], outline: true });
+            else if (above !== id) edges.push({ v1: { x: xa, y: tA }, v2: { x: xb, y: tB }, kind: "seam", r: rad, secs: [above, id] });
+            if (below === null) edges.push({ v1: { x: xa, y: bA }, v2: { x: xb, y: bB }, kind: outline.hSeam ? "seam" : "line", r: rad, secs: [id], outline: true });
+        }
+    }
+    // column lines: walk down each one, cutting it into runs with the same region on both sides
+    const step = 0.05;
+    for (let c = 0; c <= L.C; c++) {
+        const x = c * L.cw;
+        let y = 0, cur = null, start = 0;
+        // run ends land exactly on a region line
+        const cand = [0, M.H, L.OH];
+        for (const id of ids) { const rg = regionOf(L, id); if (x >= rg.x0 - 1e-6 && x <= rg.x1 + 1e-6) for (const sd of [-1, 1]) cand.push(regionTop(L, rg, x, sd), regionBot(L, rg, x, sd)); }
+        const snap = (v) => { let best = v; for (const c2 of cand) if (Math.abs(c2 - v) < 0.12 && Math.abs(c2 - v) < Math.abs(best - v) + 1e-9) best = c2; return best; };
+        const flush = (yEnd0) => {
+            const yEnd = snap(yEnd0);
+            if (!cur || yEnd - start < 1e-3) return;
+            const [lf, rt] = cur;
+            if (lf !== null && lf === rt) {
+                // inside one region: split at the cuts on either side, a knob on each long enough bit
+                const ys = [start, ...(cuts[lf][c - 1] || []), ...(cuts[lf][c] || []), yEnd].filter((v) => v >= start - 1e-6 && v <= yEnd + 1e-6).sort((a, b) => a - b);
+                const rg = regionOf(L, lf), kr = Math.min(rad, 0.16 * L.ch), hx = 2.5 * kr, hy = 1.45 * kr;
+                // a knob only where its head stays clear of the region's slanted top and bottom lines
+                const fits = (ym) => [x - hx, x + hx].every((xx) => xx < rg.x0 || xx > rg.x1 ||
+                    (ym - hy >= regionTop(L, rg, xx, xx < x ? -1 : 1) && ym + hy <= regionBot(L, rg, xx, xx < x ? -1 : 1)));
+                for (let q = 1; q < ys.length; q++) {
+                    const y0 = ys[q - 1], y1 = ys[q];
+                    if (y1 - y0 < 1e-3) continue;
+                    const kp = knob();
+                    let mm = null;
+                    if (y1 - y0 >= 0.6 * L.ch) for (const t of [0.5, 0.42, 0.58, 0.35, 0.65]) { if (fits(y0 + t * (y1 - y0))) { mm = t; break; } }
+                    if (mm !== null) kp.m = mm + (kp.m - 0.5) * 0.3;
+                    edges.push({ v1: { x, y: y0 }, v2: { x, y: y1 }, kind: mm !== null ? "knob" : "line", k: kp, r: rad, secs: [lf] });
+                }
+            } else if (lf !== null || rt !== null) {
+                edges.push({ v1: { x, y: start }, v2: { x, y: yEnd }, kind: "line", r: rad, secs: [lf, rt].filter((v) => v !== null), outline: lf === null || rt === null });
+            }
+        };
+        const yMax = Math.max(M.H, L.OH);
+        for (y = 0; y <= yMax + step / 2; y += step) {
+            const yy = Math.min(y + step / 2, yMax);
+            const lf = c > 0 ? label(x - 1e-4, yy) : null, rt = c < L.C ? label(x + 1e-4, yy) : null;
+            if (!cur || cur[0] !== lf || cur[1] !== rt) { flush(y); cur = [lf, rt]; start = snap(y); }
+        }
+        flush(yMax);
+    }
     return { edges, pieces };
 }
 
 let MODEL = null;
 function buildModel() {
     const L = layout();
-    const board = gridModel(L, 0, L.C, 0, L.R, (c, r) => sectionOf(L, c, r), mulberry32(M.seed * 31 + 7));
-    // the secret pieces, in opened coordinates; their top and bottom edges take the seam shape
-    const secret = gridModel(L, L.K0, L.K1, L.holeTop, L.holeBot, (c, r) => (inHole(L, c, r) ? "S" : null),
-        mulberry32(M.seed * 31 + 997), true);
+    const ids = [];
+    for (let i = 0; i < sectionCount(L); i++) ids.push(i);
+    const board = cutRegions(L, ids, (x, y) => (x < 0 || x > M.W || y < 0 || y >= M.H ? null : sectionAt(L, x, y)), mulberry32(M.seed * 31 + 7), {});
+    // the secret pieces, in opened coordinates; their top and bottom take the seam teeth
+    const S = regionOf(L, "S");
+    const secret = cutRegions(L, ["S"], (x, y) => (x > L.kx0 && x < L.kx1 && y >= S.top(x) && y < S.bot(x) ? "S" : null),
+        mulberry32(M.seed * 31 + 997), { hSeam: true });
     MODEL = { L, board, secret };
     return MODEL;
 }
 
-// rectangles (closed coordinates) covering a section, one per run of cells in a row
-function sectionRects(L, i) {
-    const rects = [];
-    for (let r = 0; r < L.R; r++) {
-        let c = 0;
-        while (c < L.C) {
-            if (sectionOf(L, c, r) !== i) { c++; continue; }
-            const start = c;
-            while (c < L.C && sectionOf(L, c, r) === i) c++;
-            const last = rects[rects.length - 1];
-            if (last && last.c0 === start && last.c1 === c && last.r1 === r) last.r1 = r + 1;
-            else rects.push({ c0: start, c1: c, r0: r, r1: r + 1 });
-        }
-    }
-    return rects.map((q) => ({ x: q.c0 * L.cw, y: q.r0 * L.ch, w: (q.c1 - q.c0) * L.cw, h: (q.r1 - q.r0) * L.ch }));
-}
-
 function sectionCentre(L, i) {
-    let sx = 0, sy = 0, n = 0;
-    for (let r = 0; r < L.R; r++) for (let c = 0; c < L.C; c++) if (sectionOf(L, c, r) === i) { sx += c + 0.5; sy += r + 0.5; n++; }
-    let x = (sx / n) * L.cw, y = (sy / n) * L.ch;
-    // A and B are notched; keep the letter out of the notch, in the middle of the part beside it
-    if (i <= 1) {
-        const c = i === 0 ? Math.round(L.C * 0.72) : Math.round(L.C * 0.28);
-        x = (c + 0.5) * L.cw;
-        y = i === 0 ? (L.sAt(c) / 2) * L.ch : ((L.sAt(c) + L.R) / 2) * L.ch;
-    }
-    return { x, y };
+    if (i === 0) { const x = M.W * (L.k === 1 && L.n === 3 ? 0.83 : 0.72); return { x, y: L.sAt(x, 1) * 0.5 }; }
+    if (i === 1) { const x = M.W * (L.n === 3 && L.k === 1 ? 0.17 : 0.28); return { x, y: (L.sAt(x, 1) + M.H) / 2 }; }
+    const x = (L.kx0 + L.kx1) / 2;
+    return { x, y: L.qAt(x, 1) + (i - 2 + 0.5) * L.d };
 }
 
-// rectangles (opened coordinates) covering the hole, one per grid column
-function holeRects(L) {
-    const out = [];
-    for (let c = L.K0; c < L.K1; c++) out.push({ x: c * L.cw, y: L.qTop(c) * L.ch, w: L.cw, h: L.n * L.b * L.ch });
-    return out;
+function holePolygon(L) { return regionPolygon(L, "S"); }
+function holeBox(L) {
+    const pts = holePolygon(L), ys = pts.map((p) => p.y);
+    return { x: L.kx0, y: Math.min(...ys), w: L.P, h: Math.max(...ys) - Math.min(...ys) };
 }
-function holeBox(L) { return { x: L.K0 * L.cw, y: L.holeTop * L.ch, w: L.cpc * L.cw, h: (L.holeBot - L.holeTop) * L.ch }; }
 
 // ------------------------------------------------------------------ pictures
 function canvasOf(w, h) { const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
@@ -339,17 +348,20 @@ function chooseRoad() {
     for (let k = 1; k <= clamp(M.n, 3, 6) - 2; k++) {
         const L = layout(k);
         if (!E) E = cellEnergy(L);
-        const ref = L.prof[L.K0];
-        for (let s = L.sMin; s <= L.sMax; s++) {
+        const steps = Math.max(1, Math.round((L.sMax - L.sMin) / (L.ch / 3)));
+        for (let q = 0; q <= steps; q++) {
+            const s0 = L.sMin + ((L.sMax - L.sMin) * q) / steps;
+            M.road = s0 / M.H;
+            const L2 = layout(k);
             let e = 0;
-            for (let c = 0; c < L.C; c++) {
-                const sc = s + L.prof[c] - ref;
-                for (let r = Math.max(0, sc - L.b); r < Math.min(L.R, sc + L.b); r++) e += E[r][c];
-                if (c >= L.K0 && c < L.K1) for (let r = sc - L.m * L.b; r < sc + (L.n - 1 - L.m) * L.b; r++) e += E[r][c] * 1.5;
+            for (let c = 0; c < L2.C; c++) {
+                const x = (c + 0.5) * L2.cw, sc = L2.sAt(x, 1);
+                const inK = L2.partOf(x, 1) === k;
+                const y0 = inK ? sc - L2.m * L2.d : sc - L2.d * 0.6, y1 = inK ? sc + (L2.n - 1 - L2.m) * L2.d : sc + L2.d * 0.6;
+                for (let r = Math.max(0, Math.floor(y0 / L2.ch)); r < Math.min(L2.R, Math.ceil(y1 / L2.ch)); r++) e += E[r][c] * (inK ? 1.5 : 1);
             }
-            // a slight preference for the middle, where the hole looks best
-            e *= 1 + 0.15 * Math.abs(k - (L.n - 1) / 2) + 0.2 * Math.abs(s / L.R - 0.55);
-            if (!best || e < best.e) best = { e, k, s };
+            e *= 1 + 0.15 * Math.abs(k - (L2.n - 1) / 2) + 0.2 * Math.abs(s0 / M.H - 0.5);
+            if (!best || e < best.e) best = { e, k, s: s0 };
         }
     }
     M.road = saveRoad;
@@ -360,16 +372,11 @@ function chooseRoad() {
 function seamDistance(L, res) {
     const w = Math.ceil(M.W * res), h = Math.ceil(M.H * res);
     const D = new Float32Array(w * h).fill(1e9);
-    const seed = (x, y) => { if (x >= 0 && y >= 0 && x < w && y < h) D[y * w + x] = 0; };
-    for (let r = 1; r < L.R; r++) for (let c = 0; c < L.C; c++) {
-        if (sectionOf(L, c, r - 1) === sectionOf(L, c, r)) continue;
-        const y = Math.round(r * L.ch * res);
-        for (let x = Math.floor(c * L.cw * res); x <= Math.ceil((c + 1) * L.cw * res); x++) { seed(x, y); seed(x, y - 1); }
-    }
-    for (let c = 1; c < L.C; c++) for (let r = 0; r < L.R; r++) {
-        if (sectionOf(L, c - 1, r) === sectionOf(L, c, r)) continue;
-        const x = Math.round(c * L.cw * res);
-        for (let y = Math.floor(r * L.ch * res); y <= Math.ceil((r + 1) * L.ch * res); y++) { seed(x, y); seed(x - 1, y); }
+    const lab = new Int8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) lab[y * w + x] = sectionAt(L, (x + 0.5) / res, (y + 0.5) / res);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if ((x < w - 1 && lab[i] !== lab[i + 1]) || (y < h - 1 && lab[i] !== lab[i + w]) || (x > 0 && lab[i] !== lab[i - 1]) || (y > 0 && lab[i] !== lab[i - w])) D[i] = 0;
     }
     const S2 = Math.SQRT2;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -384,7 +391,7 @@ function seamDistance(L, res) {
         if (y < h - 1) { v = Math.min(v, D[i + w] + 1); if (x < w - 1) v = Math.min(v, D[i + w + 1] + S2); if (x > 0) v = Math.min(v, D[i + w - 1] + S2); }
         D[i] = v;
     }
-    return { D, w, h, res };
+    return { D, w, h, res, lab };
 }
 
 // Paint the road along every seam. Sections meet other sections when the puzzle opens, so every seam
@@ -393,7 +400,7 @@ function seamDistance(L, res) {
 // narrower blend (best after the road was painted into the picture with AI).
 function paintRoad(L) {
     const k = PIC.pxPerMm, res = Math.min(3, k);
-    const { D, w, h } = seamDistance(L, res);
+    const { D, w, h, lab } = seamDistance(L, res);
     const fade = (M.roadStyle === "picture" ? 0.3 : 0.45) * Math.min(L.cw, L.ch) * res;
     // road colour: the median of the picture along the seams
     const small = canvasOf(w, h);
@@ -409,8 +416,7 @@ function paintRoad(L) {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = y * w + x;
         let a = Math.max(0, Math.min(1, 1.6 * (1 - D[i] / fade)));
-        const c = Math.floor(x / res / L.cw), r = Math.floor(y / res / L.ch);
-        if (sectionOf(L, Math.min(c, L.C - 1), Math.min(r, L.R - 1)) >= 2) a = 1;
+        if (lab[i] >= 2) a = 1;
         md.data[i * 4 + 3] = Math.round(a * 255);
     }
     mx.putImageData(md, 0, 0);
@@ -439,10 +445,11 @@ function rebuildPictures() {
     if (PIC.secretSrc) fitSecret(PIC.secretSrc, PIC.secretFromOpen);
 }
 
-// clip a canvas context to a section's cells, shifted
-function clipRects(cx, rects, off, k) {
+// clip a canvas context to a polygon, shifted
+function clipPoly(cx, pts, off, k) {
     cx.beginPath();
-    for (const q of rects) cx.rect((q.x + off.x) * k, (q.y + off.y) * k, q.w * k, q.h * k);
+    pts.forEach((p, i) => (i ? cx.lineTo : cx.moveTo).call(cx, (p.x + off.x) * k, (p.y + off.y) * k));
+    cx.closePath();
     cx.clip();
 }
 
@@ -453,13 +460,13 @@ function compositeAt(stage, hole) {
     const c = canvasOf(M.W * k, (stage === 0 ? M.H : L.OH) * k), cx = c.getContext("2d");
     for (let i = 0; i < sectionCount(L); i++) {
         const off = offsetOf(L, i, stage);
-        cx.save(); clipRects(cx, sectionRects(L, i), off, k);
+        cx.save(); clipPoly(cx, regionPolygon(L, i), off, k);
         cx.drawImage(PIC.main, off.x * k, off.y * k);
         cx.restore();
     }
     if (stage >= 2) {
         const hb = holeBox(L);
-        cx.save(); clipRects(cx, holeRects(L), { x: 0, y: 0 }, k);
+        cx.save(); clipPoly(cx, holePolygon(L), { x: 0, y: 0 }, k);
         if (stage === 3 && PIC.secret) cx.drawImage(PIC.secret, (hb.x - L.bleed) * k, (hb.y - L.bleed) * k);
         else if (hole) { cx.fillStyle = hole; cx.fillRect(0, 0, c.width, c.height); }
         cx.restore();
@@ -499,7 +506,7 @@ function secretPrompt() {
 }
 
 function mainPrompt() {
-    const L = layout(), ratio = (M.W / M.H).toFixed(2), at = Math.round((L.s / L.R) * 100);
+    const L = layout(), ratio = (M.W / M.H).toFixed(2), at = Math.round((L.s / M.H) * 100);
     return "A detailed, busy illustration for a jigsaw puzzle, aspect ratio " + ratio + ":1. " +
         (M.styleText.trim() || "Colourful storybook style with lots of little characters.") +
         " A wide, plain road (or a path, a river or a strip of meadow) runs across the whole picture" +
@@ -614,14 +621,16 @@ async function aiRoad() {
     const L = layout(), k = PIC.pxPerMm;
     const c = canvasOf(PIC.orig.width, PIC.orig.height), cx = c.getContext("2d");
     cx.drawImage(PIC.orig, 0, 0);
-    const Y = (r) => Math.round(r * L.ch * k), X = (col) => Math.round(col * L.cw * k);
-    for (let col = 0; col < L.C; col++) {
-        cx.clearRect(X(col), Y(L.sAt(col) - 0.5 * L.b), X(col + 1) - X(col), Y(L.b));
-        if (col >= L.K0 && col < L.K1) cx.clearRect(X(col), Y(L.qTop(col)), X(col + 1) - X(col), Y((L.n - 1) * L.b));
+    // clear the road: a band along the road line, and the crossroads strips
+    const id = cx.getImageData(0, 0, c.width, c.height);
+    for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+        const mx = (x + 0.5) / k, my = (y + 0.5) / k, sc = sectionAt(L, mx, my);
+        if (sc >= 2 || (L.partOf(mx, 1) !== L.k && Math.abs(my - L.sAt(mx, 1)) < L.d * 0.5)) id.data[(y * c.width + x) * 4 + 3] = 0;
     }
+    cx.putImageData(id, 0, 0);
     const out = await aiEdit(c, roadPrompt());
     // keep this layout: the road was painted for it
-    M.k = L.k; M.road = L.s / L.R; M.roadStyle = "picture";
+    M.k = L.k; M.road = L.s / M.H; M.roadStyle = "picture";
     PIC.orig = out;
     rebuildPictures();
 }
@@ -643,9 +652,9 @@ function render(animate) {
     const nSec = sectionCount(L);
     let defs = "", body = "";
     for (let i = 0; i < nSec; i++) {
-        defs += '<clipPath id="clip' + i + '">' + sectionRects(L, i).map((q) => '<rect x="' + q.x + '" y="' + q.y + '" width="' + q.w + '" height="' + q.h + '"/>').join("") + "</clipPath>";
+        defs += '<clipPath id="clip' + i + '"><path d="' + polyPath(regionPolygon(L, i)) + '"/></clipPath>';
     }
-    defs += '<clipPath id="clipS">' + holeRects(L).map((q) => '<rect x="' + q.x + '" y="' + q.y + '" width="' + q.w + '" height="' + q.h + '"/>').join("") + "</clipPath>";
+    defs += '<clipPath id="clipS"><path d="' + polyPath(holePolygon(L)) + '"/></clipPath>';
     const edgesFor = (model, i) => model.edges.filter((e) => e.secs.indexOf(i) >= 0);
     const tint = ["#d8b98f", "#b58f63", "#e7a978", "#9fb5a0", "#c9a3c4", "#a9bfd6", "#e2c46e", "#c4b39a"];
     // sections
@@ -658,8 +667,8 @@ function render(animate) {
             '<image href="' + PIC.mainUrl + '" width="' + M.W + '" height="' + M.H + '" preserveAspectRatio="none"/>' :
             '<rect class="blank" width="' + M.W + '" height="' + M.H + '" style="fill:' + tint[i % tint.length] + '"/>') + "</g>";
         const es = edgesFor(board, i);
-        if (M.showCuts) g += '<g class="cuts">' + es.filter((e) => e.kind === "knob").map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
-        g += '<g class="secline">' + es.filter((e) => e.kind !== "knob").map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
+        if (M.showCuts) g += '<g class="cuts">' + es.filter((e) => e.secs.length === 1 && !e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
+        g += '<g class="secline">' + es.filter((e) => e.secs.length === 2 || e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
         if (M.showSections) {
             const cc = sectionCentre(L, i), small = i >= 2;
             g += '<text class="tag' + (small ? " small" : "") + '" x="' + cc.x + '" y="' + cc.y + '">' + sectionLetter(i) + "</text>";
@@ -674,9 +683,9 @@ function render(animate) {
         g += '<g clip-path="url(#clipS)">' + (PIC.secretUrl ?
             '<image href="' + PIC.secretUrl + '" x="' + (hb.x - L.bleed) + '" y="' + (hb.y - L.bleed) + '" width="' + (holeW + 2 * L.bleed) + '" height="' + (holeH + 2 * L.bleed) + '" preserveAspectRatio="none"/>' :
             '<rect class="blank secretblank" x="' + hb.x + '" y="' + hb.y + '" width="' + holeW + '" height="' + holeH + '"/>') + "</g>";
-        if (M.showCuts) g += '<g class="cuts">' + secret.edges.filter((e) => e.kind === "knob").map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
-        g += '<g class="secline">' + secret.edges.filter((e) => e.secs.length === 1).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
-        g += '<text class="tag star" x="' + (hb.x + holeW / 2) + '" y="' + (L.qTop(L.K0 + (L.cpc >> 1)) + L.n * L.b / 2) * L.ch + '">★</text>';
+        if (M.showCuts) g += '<g class="cuts">' + secret.edges.filter((e) => !e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
+        g += '<g class="secline">' + secret.edges.filter((e) => e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
+        g += '<text class="tag star" x="' + (hb.x + holeW / 2) + '" y="' + (L.qAt(hb.x + holeW / 2, 1) + L.n * L.d / 2) + '">★</text>';
         body += g + "</g>";
     }
     // where the hole will be, and the outline of the opened puzzle
@@ -694,7 +703,7 @@ function render(animate) {
     updateLayoutUI(L);
     updatePictureUI();
     // the secret picture was painted for a hole of another size or place
-    const key = [L.n, L.b, L.k, L.s, L.cpc, L.R, M.W, M.H].join(",");
+    const key = [L.n, L.b, L.k, Math.round(L.s), L.g.toFixed(1), L.cpc, L.R, M.W, M.H].join(",");
     if (lastLayoutKey && key !== lastLayoutKey && PIC.secret) $("secretStale").hidden = false;
     lastLayoutKey = key;
     scheduleSave();
@@ -730,7 +739,7 @@ function secretOrigin(L) { const hb = holeBox(L); return { x: M.W + 10 + L.bleed
 function cutPaths() {
     const { L, board, secret } = MODEL || buildModel();
     const out = ["M 0 0 H " + M.W + " V " + M.H + " H 0 Z"];
-    board.edges.forEach((e) => { if (e.secs.length === 2) out.push(edgeD(e)); });
+    board.edges.forEach((e) => { if (!e.outline) out.push(edgeD(e)); });
     const o = secretOrigin(L);
     secret.edges.forEach((e) => out.push(edgeD(e, o.x, o.y)));
     return { paths: out, W: M.W + 10 + holeBox(L).w + 2 * L.bleed, H: Math.max(M.H, holeBox(L).h + 2 * L.bleed) };
@@ -795,10 +804,11 @@ function sheetCanvas() {
         for (let i = 0; i < sectionCount(L); i++) {
             const off = offsetOf(L, i, Math.min(stage, 2));
             if (!PIC.main) { cx.fillStyle = ["#d8b98f", "#b58f63", "#e7a978", "#9fb5a0", "#c9a3c4", "#a9bfd6", "#e2c46e"][i % 7]; }
-            for (const q of sectionRects(L, i)) {
-                if (!PIC.main) cx.fillRect(px + (q.x + off.x) * mmk, py + (q.y + off.y) * mmk, q.w * mmk, q.h * mmk);
-            }
-            outlineSection(cx, L, i, px + off.x * mmk, py + off.y * mmk, mmk);
+            const poly = new Path2D(polyPath(regionPolygon(L, i), off.x, off.y, mmk));
+            cx.save(); cx.translate(px, py);
+            if (!PIC.main) cx.fill(poly);
+            cx.stroke(poly);
+            cx.restore();
             const cc = sectionCentre(L, i);
             cx.font = (i >= 2 ? "700 26px" : "700 44px") + " 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle";
             cx.lineWidth = 6; cx.strokeStyle = "rgba(255,255,255,.9)";
@@ -811,13 +821,13 @@ function sheetCanvas() {
         if (p === 1) { const bc = sectionCentre(L, 1); arrow(cx, px + bc.x * mmk, py + (bc.y + L.ch * 0.6) * mmk, px + bc.x * mmk, py + (bc.y + L.ch * (0.6 + L.b * 1.2)) * mmk); }
         if (p === 2) for (let t = 0; t < L.n - 1; t++) {
             const from = sectionCentre(L, 2 + t), o = offsetOf(L, 2 + t, 2), to = { x: from.x + o.x, y: from.y + o.y };
-            const dir = Math.sign(to.x - from.x), gap = L.cpc * L.cw * 0.28;
+            const dir = Math.sign(to.x - from.x), gap = L.P * 0.28;
             arrow(cx, px + (from.x + dir * gap) * mmk, py + (from.y - L.ch * 0.15) * mmk, px + (to.x - dir * gap) * mmk, py + (to.y - L.ch * 0.15) * mmk, true);
         }
         if (p === 3) {
             cx.font = "700 60px 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle";
             cx.fillStyle = "#f2c230"; cx.strokeStyle = "#2a2320"; cx.lineWidth = 4;
-            const sx = px + (L.K0 + L.cpc / 2) * L.cw * mmk, sy = py + (L.qTop(L.K0 + (L.cpc >> 1)) + L.n * L.b / 2) * L.ch * mmk;
+            const sx = px + (L.K0 + L.cpc / 2) * L.cw * mmk, sy = py + (L.qAt((L.kx0 + L.kx1) / 2, 1) + L.n * L.d / 2) * mmk;
             if (!PIC.secret) { cx.strokeText("★", sx, sy); cx.fillText("★", sx, sy); }
             cx.textBaseline = "alphabetic";
         }
@@ -849,20 +859,6 @@ function arrow(cx, x1, y1, x2, y2, curved) {
     cx.closePath(); cx.fill();
 }
 
-// trace the boundary of a section's cells (lattice edges with the section on one side only)
-function outlineSection(cx, L, i, ox, oy, s) {
-    cx.beginPath();
-    for (let r = 0; r <= L.R; r++) for (let c = 0; c < L.C; c++) {
-        const a = r > 0 ? sectionOf(L, c, r - 1) === i : false, b = r < L.R ? sectionOf(L, c, r) === i : false;
-        if (a !== b) { cx.moveTo(ox + c * L.cw * s, oy + r * L.ch * s); cx.lineTo(ox + (c + 1) * L.cw * s, oy + r * L.ch * s); }
-    }
-    for (let c = 0; c <= L.C; c++) for (let r = 0; r < L.R; r++) {
-        const a = c > 0 ? sectionOf(L, c - 1, r) === i : false, b = c < L.C ? sectionOf(L, c, r) === i : false;
-        if (a !== b) { cx.moveTo(ox + c * L.cw * s, oy + r * L.ch * s); cx.lineTo(ox + c * L.cw * s, oy + (r + 1) * L.ch * s); }
-    }
-    cx.stroke();
-}
-
 function downloadSheet() {
     sheetCanvas().toBlob((b) => saveBlob("magic-puzzle-instructions.png", b, "image/png"), "image/png");
 }
@@ -874,7 +870,7 @@ function scheduleSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         try {
-            const s = { v: 3 };
+            const s = { v: 4 };
             SAVE_KEYS.forEach((k) => { s[k] = M[k]; });
             localStorage.setItem("jw-magic-settings", JSON.stringify(s));
         } catch (e) { /* storage blocked */ }
@@ -885,7 +881,7 @@ function loadSaved() {
         const s = JSON.parse(localStorage.getItem("jw-magic-settings") || "null");
         if (!s) return;
         ["W", "H", "knob", "seed", "secretText", "styleText", "showCuts"].forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
-        if (s.v === 3) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
+        if (s.v === 4) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
         M.n = clamp(M.n, 3, 6);
     } catch (e) { /* ignore */ }
 }
@@ -910,8 +906,8 @@ function updatePictureUI() {
 
 function updateLayoutUI(L) {
     const road = $("mRoad");
-    road.min = L.sMin; road.max = L.sMax; road.value = L.s;
-    $("mRoadOut").textContent = M.road == null ? (PIC.auto ? "Auto" : "Row " + L.s) : "Row " + L.s;
+    road.min = Math.floor(L.sMin); road.max = Math.ceil(L.sMax); road.value = Math.round(L.s);
+    $("mRoadOut").textContent = (M.road == null && PIC.auto ? "Auto · " : "") + Math.round(L.s) + " mm";
     const sel = $("mK");
     const want = (M.k == null ? "auto" : String(L.k));
     let html = '<option value="auto">Auto' + (PIC.auto ? " (column " + (L.k + 1) + ")" : "") + "</option>";
@@ -921,8 +917,8 @@ function updateLayoutUI(L) {
         b.setAttribute("aria-pressed", b.dataset.v === M.roadShape);
         b.disabled = false;
     });
-    $("shapeNote").hidden = !(M.roadShape !== "straight" && L.g === 0);
-    $("holeOut").textContent = Math.round(L.cpc * L.cw) + " × " + Math.round(L.n * L.b * L.ch) + " mm";
+    $("shapeNote").hidden = true;
+    $("holeOut").textContent = Math.round(L.P) + " × " + Math.round(L.n * L.d) + " mm";
     $("mB").value = L.b;
 }
 
@@ -954,7 +950,7 @@ function init() {
     $("mN").addEventListener("change", () => { M.n = parseInt($("mN").value); M.k = null; chooseRoad(); relayout(); });
     $("mB").addEventListener("change", () => { M.bandRows = parseInt($("mB").value); chooseRoad(); relayout(); });
     $("mK").addEventListener("change", () => { const v = $("mK").value; M.k = v === "auto" ? null : parseInt(v); relayout(); });
-    $("mRoad").addEventListener("input", () => { const L = layout(); M.road = parseInt($("mRoad").value) / L.R; relayout(); });
+    $("mRoad").addEventListener("input", () => { const L = layout(); M.road = parseInt($("mRoad").value) / M.H; relayout(); });
     document.querySelectorAll("#shapeSeg button").forEach((b) => b.addEventListener("click", () => { M.roadShape = b.dataset.v; M.road = null; chooseRoad(); relayout(); }));
     $("roadAuto").addEventListener("click", () => { M.road = null; M.k = null; relayout(); });
     $("mPiece").addEventListener("input", () => { M.piece = +$("mPiece").value; $("mPieceOut").textContent = M.piece + " mm"; chooseRoad(); relayout(); });
@@ -989,7 +985,7 @@ function init() {
             const img = await loadImage(URL.createObjectURL(f));
             // a whole opened picture (from the template) or just the secret area
             const L = layout(), ar = img.naturalWidth / img.naturalHeight;
-            const openAr = M.W / L.OH, holeAr = (L.cpc * L.cw) / (L.n * L.b * L.ch);
+            const openAr = M.W / L.OH, holeAr = L.P / (L.n * L.d);
             fitSecret(img, Math.abs(Math.log(ar / openAr)) < Math.abs(Math.log(ar / holeAr)));
             $("secretStale").hidden = true;
             warn(""); setOpen(true);

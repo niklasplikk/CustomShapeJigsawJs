@@ -25,11 +25,11 @@ Files: `engine.js` is the original generator (lightly patched, with hooks), `app
 
 ## Magic Puzzle (beta) — `magic/`
 
-A puzzle with a twist, like the shift-and-reveal puzzles from the Magic Puzzle Company. The finished puzzle has a road running across it, slanted (or zigzag, or straight), so the sections have stepped, slanted edges: A above the road, B below it, and a crossroads made of slanted strips (C, D…). To open it:
+A puzzle with a twist, like the shift-and-reveal puzzles from the Magic Puzzle Company. The finished puzzle has a road running across it, slanted (or zigzag, or straight), so the sections have long straight, slanted edges (the pieces along them are cut straight, like edge pieces): A above the road, B below it, and a crossroads made of slanted strips (C, D…). To open it:
 
-1. Slide section B (everything below the road) down two rows.
+1. Slide section B (everything below the road) down one row (or more).
 2. Lift the strips off the crossroads and lay them into the slanted gap that opened along the road.
-3. A slanted hole has appeared in the middle where the crossroads was; the secret pieces fill it. The opened puzzle is two rows taller.
+3. A slanted hole has appeared in the middle where the crossroads was; the secret pieces fill it. The opened puzzle is one row taller.
 
 - Seams follow lattice lines and use the same non-locking tooth everywhere, so sections slide apart and lock into either arrangement.
 - The road is painted onto every seam that changes partners (a seamless tile), so the picture lines up both ways. Road style: plain path (any picture), the picture's own texture, or painted into the scene with AI. Road position and crossroads column are chosen from the calmest part of the picture, or by hand.

@@ -513,12 +513,23 @@ function secretPrompt() {
 }
 
 function mainPrompt() {
-    const L = layout(), ratio = (M.W / M.H).toFixed(2), at = Math.round((L.s / M.H) * 100);
+    const L = layout(), ratio = (M.W / M.H).toFixed(2), pct = (y) => Math.round((y / M.H) * 100);
+    const names = L.n === 3 ? ["left third", "middle third", "right third"] : null;
+    const parts = [];
+    for (let j = 0; j < L.n; j++) {
+        const x0 = j * L.P + 0.01, x1 = (j + 1) * L.P - 0.01;
+        const where = names ? "in the " + names[j] : "in part " + (j + 1) + " of " + L.n + " (from the left)";
+        const y0 = pct(L.road(x0, 1)), y1 = pct(L.road(x1, -1));
+        parts.push(where + (Math.abs(y1 - y0) < 2 ? " at " + y0 + "%" : " from " + y0 + "% down to " + y1 + "%"));
+    }
+    const shape = M.roadShape === "slant" ? "slopes down from left to right" : M.roadShape === "wavy" ? "zigzags" : "runs level";
     return "A detailed, busy illustration for a jigsaw puzzle, aspect ratio " + ratio + ":1. " +
         (M.styleText.trim() || "Colourful storybook style with lots of little characters.") +
-        " A wide, plain road (or a path, a river or a strip of meadow) runs across the whole picture" +
-        (M.roadShape === "slant" ? ", sloping gently down from left to right," : M.roadShape === "wavy" ? ", gently winding," : "") +
-        " about " + at + "% of the way down, with a short side road crossing it. Keep the road itself plain and even, with nothing on it.";
+        " A plain, even road (or path, river or strip of meadow) about " + pct(L.d * 0.8) + "% of the picture tall runs across the whole picture in " + L.n +
+        " steps, like a staircase seen from the side: in each step it " + shape + ", and then it jumps to a new height at the next step. " +
+        "Measured from the top of the picture, the middle of the road is " + parts.join(", ") + ". " +
+        "The road is plain and even everywhere with nothing on it, and the ground at the far left and the far right edge of the lower half looks the same. " +
+        "Put the interesting things above and below the road.";
 }
 
 // ------------------------------------------------------------------ AI (OpenAI image API, the user's own key)

@@ -16,8 +16,8 @@ const LETTERS = "ABCDEFGHIJ";
 
 const M = {
     W: 400, H: 300,             // closed puzzle, mm
-    n: 4,                       // the road is cut into n parts; n - 1 of them are side-road strips
-    bandRows: 1,                // how many rows section B slides down
+    n: 3,                       // the width is cut into n parts: B is n - 1 of them, C one; the hole is one part wide
+    bandRows: 2,                // how many rows B and C drop when they move
     roadShape: "slant",         // straight | slant | wavy
     k: null,                    // hole column (null = choose from the picture)
     road: null,                 // road height at the hole, as a fraction of the height (null = from the picture)
@@ -45,70 +45,58 @@ const PIC = {
 // ------------------------------------------------------------------ layout
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// Everything is in mm, y pointing down. The puzzle is split into n parts side by side, each P wide.
-// The road line s(x) is the same in every part (it repeats), so a strip cut from the crossroads fits
-// every slot along the road. "slant": down across each part, then straight back up at the part's edge;
-// "wavy": a zigzag; "straight": level.
-function layout(forceK) {
-    const n = clamp(M.n, 3, 6), b = clamp(M.bandRows, 1, 3);
+// Three sections, like the box: A on top, B bottom left, C bottom right. Everything is in mm, y down.
+// The width is cut into n parts, each c wide. B is n - 1 parts wide, C one part.
+// The road under A has the same shape in every part (g), but each part sits at its own height:
+//   part 0 at g, part 1 (n - 1)·d higher, and every part after that d lower than the one before.
+// Then, when C moves left by (n - 1) parts and B right by one part, both one slide (d) lower, they fit
+// under A again, and in part 1 a hole opens: c wide and n·d high. The puzzle grows by d.
+function layout() {
+    const n = clamp(M.n, 3, 5), b = clamp(M.bandRows, 1, 3);
     const cpc = Math.max(2, Math.round(M.W / n / M.piece));
     const C = n * cpc, P = M.W / n, cw = P / cpc;
     const R = Math.max(3, Math.round(M.H / M.piece)), ch = M.H / R;
-    const d = b * ch;                                         // how far B slides, = the strips' height
-    const m = Math.floor((n - 1) / 2);                        // strips above the road
-    let k = forceK != null ? forceK : M.k != null ? M.k : PIC.auto ? PIC.auto.k : Math.floor((n - 1) / 2);
-    k = clamp(k, 1, n - 2);
-    const mrg = 0.75 * ch;                                    // keep most of a row of puzzle above and below
+    const d = b * ch;
+    const mrg = 0.8 * ch;
     const room = M.H - 2 * mrg - (n - 1) * d;
-    let g = M.roadShape === "slant" ? Math.min(P * 0.75, room - 0.3 * ch) : M.roadShape === "wavy" ? Math.min(P * 0.3, room - 0.3 * ch, 1.2 * ch) : 0;
+    let g = M.roadShape === "slant" ? Math.min(P * 0.55, room - 0.3 * ch) : M.roadShape === "wavy" ? Math.min(P * 0.25, room - 0.3 * ch, ch) : 0;
     g = Math.max(0, g);
     const peak = Math.max(1, Math.round(cpc / 2)) * cw;      // zigzag turns on a column line
-    const f = (u) => M.roadShape === "slant" ? (g * u) / P :
+    const gU = (u) => M.roadShape === "slant" ? (g * u) / P :
         M.roadShape === "wavy" ? (u <= peak ? (g * u) / peak : (g * (P - u)) / (P - peak)) : 0;
-    const sMin = mrg + m * d, sMax = M.H - mrg - g - (n - 1 - m) * d;
-    let s0 = M.road != null ? M.road * M.H : PIC.auto && forceK == null ? PIC.auto.s : M.H * 0.5 - g / 2;
+    const off = (j) => (j === 0 ? 0 : (n - j) * d);           // how much higher each part's road is
+    const sMin = mrg + (n - 1) * d, sMax = M.H - mrg - g;
+    let s0 = M.road != null ? M.road * M.H : PIC.auto ? PIC.auto.s : (sMin + sMax) / 2 + 0.15 * (sMax - sMin);
     s0 = sMax >= sMin ? clamp(s0, sMin, sMax) : (sMin + sMax) / 2;
     // the part a point belongs to; at a part edge, side -1 means the part on the left
     const partOf = (x, side) => clamp(side < 0 ? Math.ceil(x / P - 1e-9) - 1 : Math.floor(x / P + 1e-9), 0, n - 1);
-    const sAt = (x, side) => { const j = partOf(x, side || 1); return s0 + f(x - j * P); };
-    const qAt = (x, side) => sAt(x, side) - m * d;           // top of the crossroads strips (part k)
-    const kx0 = k * P, kx1 = (k + 1) * P;
-    const donorCols = [];
-    for (let j = 0; j < n; j++) if (j !== k) donorCols.push(j);
+    const road = (x, side) => { const j = partOf(x, side || 1); return s0 + gU(x - j * P) - off(j); };   // A's bottom edge
+    const base = (x) => s0 + gU(x - partOf(x, 1) * P);         // the road shape at part-0 height
     return {
-        n, b, cpc, C, R, cw, ch, P, d, m, k, g, s: s0, sMin, sMax, sAt, qAt, partOf,
-        K0: k * cpc, K1: (k + 1) * cpc, kx0, kx1,
-        holeTop: s0 - m * d, holeBot: s0 - m * d + g + n * d,
-        donorCols,
+        n, b, cpc, C, R, cw, ch, P, d, g, s: s0, sMin, sMax, road, base, partOf,
+        bx1: (n - 1) * P,                     // where B ends and C starts
+        hx0: P, hx1: 2 * P,                   // the hole, opened
         OH: M.H + d,                          // opened height
         bleed: 0.4 * Math.min(cw, ch),        // picture margin around the secret pieces, for the knobs
     };
 }
 
-// The regions: each lies over an x range between a top and a bottom line.
-// 0 = A above the road, 1 = B below it, 2.. = crossroads strips; "S" = the hole (opened coordinates).
+// The regions: each lies over an x range between a top and a bottom line. 0 = A, 1 = B, 2 = C,
+// "S" = the hole (opened coordinates).
 function regionOf(L, i) {
-    const inK = (x, side) => L.partOf(x, side) === L.k;
-    if (i === 0) return { x0: 0, x1: M.W, top: () => 0, bot: (x, sd) => (inK(x, sd) ? L.qAt(x, sd) : L.sAt(x, sd)) };
-    if (i === 1) return { x0: 0, x1: M.W, top: (x, sd) => (inK(x, sd) ? L.qAt(x, sd) + (L.n - 1) * L.d : L.sAt(x, sd)), bot: () => M.H };
-    if (i === "S") return { x0: L.kx0, x1: L.kx1, top: (x, sd) => L.qAt(x, sd), bot: (x, sd) => L.qAt(x, sd) + L.n * L.d };
-    const t = i - 2;
-    return { x0: L.kx0, x1: L.kx1, top: (x, sd) => L.qAt(x, sd) + t * L.d, bot: (x, sd) => L.qAt(x, sd) + (t + 1) * L.d };
+    if (i === 0) return { x0: 0, x1: M.W, top: () => 0, bot: (x, sd) => L.road(x, sd) };
+    if (i === 1) return { x0: 0, x1: L.bx1, top: (x, sd) => L.road(x, sd), bot: () => M.H };
+    if (i === 2) return { x0: L.bx1, x1: M.W, top: (x, sd) => L.road(x, sd), bot: () => M.H };
+    return { x0: L.hx0, x1: L.hx1, top: (x, sd) => L.road(x, sd), bot: (x, sd) => L.road(x - L.P, sd) + L.d };
 }
-// inside part k the lines must be read from inside the part, also at its edges
 function regionTop(L, rg, x, side) { return rg.top(clamp(x, rg.x0, rg.x1), x <= rg.x0 ? 1 : x >= rg.x1 ? -1 : side); }
 function regionBot(L, rg, x, side) { return rg.bot(clamp(x, rg.x0, rg.x1), x <= rg.x0 ? 1 : x >= rg.x1 ? -1 : side); }
 
 function sectionAt(L, x, y) {
-    const j = L.partOf(x, 1);
-    if (j === L.k) {
-        const q = L.qAt(x, 1);
-        if (y >= q && y < q + (L.n - 1) * L.d) return 2 + Math.floor((y - q) / L.d);
-        return y < q ? 0 : 1;
-    }
-    return y < L.sAt(x, 1) ? 0 : 1;
+    if (y < L.road(x, 1)) return 0;
+    return x < L.bx1 ? 1 : 2;
 }
-function sectionCount(L) { return 2 + (L.n - 1); }
+function sectionCount() { return 3; }
 function sectionLetter(i) { return LETTERS[i]; }
 
 // the outline of a region as a polygon (lines are straight between column lines)
@@ -128,13 +116,13 @@ function polyPath(pts, ox, oy, s) {
     return pts.map((p, i) => (i ? "L " : "M ") + ((p.x + (ox || 0)) * (s || 1)).toFixed(3) + " " + ((p.y + (oy || 0)) * (s || 1)).toFixed(3)).join(" ") + " Z";
 }
 
-// how far a section moves when the puzzle is opened; stage 0 closed, 1 B slid down, 2 strips moved
+// Where a section is at each stage of opening, as in the box's instructions:
+// 0 finished, 1 B slid away, 2 C slid to where B was, 3 B put where C was (the hole is there), 4 secret pieces in.
+function awayY(L) { return M.H * 0.42; }
 function offsetOf(L, i, stage) {
     if (i === 0 || stage === 0) return { x: 0, y: 0 };
-    if (i === 1) return { x: 0, y: L.d };
-    if (stage < 2) return { x: 0, y: 0 };
-    const t = i - 2, j = L.donorCols[t];
-    return { x: (j - L.k) * L.P, y: (L.m - t) * L.d };
+    if (i === 1) return stage <= 2 ? { x: -L.P * 0.15, y: awayY(L) } : { x: L.P, y: L.d };
+    return stage >= 2 ? { x: -(L.n - 1) * L.P, y: L.d } : { x: 0, y: 0 };
 }
 
 // ------------------------------------------------------------------ pieces
@@ -267,28 +255,26 @@ function cutRegions(L, ids, label, rnd, outline) {
 let MODEL = null;
 function buildModel() {
     const L = layout();
-    const ids = [];
-    for (let i = 0; i < sectionCount(L); i++) ids.push(i);
+    const ids = [0, 1, 2];
     const board = cutRegions(L, ids, (x, y) => (x < 0 || x > M.W || y < 0 || y >= M.H ? null : sectionAt(L, x, y)), mulberry32(M.seed * 31 + 7), {});
     // the secret pieces, in opened coordinates; their top and bottom take the seam teeth
     const S = regionOf(L, "S");
-    const secret = cutRegions(L, ["S"], (x, y) => (x > L.kx0 && x < L.kx1 && y >= S.top(x) && y < S.bot(x) ? "S" : null),
+    const secret = cutRegions(L, ["S"], (x, y) => (x > L.hx0 && x < L.hx1 && y >= S.top(x, 1) && y < S.bot(x, 1) ? "S" : null),
         mulberry32(M.seed * 31 + 997), { hSeam: true });
     MODEL = { L, board, secret };
     return MODEL;
 }
 
 function sectionCentre(L, i) {
-    if (i === 0) { const x = M.W * (L.k === 1 && L.n === 3 ? 0.83 : 0.72); return { x, y: L.sAt(x, 1) * 0.5 }; }
-    if (i === 1) { const x = M.W * (L.n === 3 && L.k === 1 ? 0.17 : 0.28); return { x, y: (L.sAt(x, 1) + M.H) / 2 }; }
-    const x = (L.kx0 + L.kx1) / 2;
-    return { x, y: L.qAt(x, 1) + (i - 2 + 0.5) * L.d };
+    if (i === 0) { const x = M.W * 0.7; return { x, y: L.road(x, 1) * 0.45 }; }
+    const x = i === 1 ? L.bx1 * 0.3 : (L.bx1 + M.W) / 2;
+    return { x, y: (L.road(x, 1) + M.H) / 2 };
 }
 
 function holePolygon(L) { return regionPolygon(L, "S"); }
 function holeBox(L) {
     const pts = holePolygon(L), ys = pts.map((p) => p.y);
-    return { x: L.kx0, y: Math.min(...ys), w: L.P, h: Math.max(...ys) - Math.min(...ys) };
+    return { x: L.hx0, y: Math.min(...ys), w: L.P, h: Math.max(...ys) - Math.min(...ys) };
 }
 
 // ------------------------------------------------------------------ pictures
@@ -338,31 +324,26 @@ function cellEnergy(L) {
     return E;
 }
 
-// The road goes where the picture is calmest: along the road line, plus the crossroads.
+// The road goes where the picture is calmest.
 function chooseRoad() {
     PIC.auto = null;
     if (!PIC.orig) return;
     const saveRoad = M.road;
     M.road = null;
-    let best = null, E = null;
-    for (let k = 1; k <= clamp(M.n, 3, 6) - 2; k++) {
-        const L = layout(k);
-        if (!E) E = cellEnergy(L);
-        const steps = Math.max(1, Math.round((L.sMax - L.sMin) / (L.ch / 3)));
-        for (let q = 0; q <= steps; q++) {
-            const s0 = L.sMin + ((L.sMax - L.sMin) * q) / steps;
-            M.road = s0 / M.H;
-            const L2 = layout(k);
-            let e = 0;
-            for (let c = 0; c < L2.C; c++) {
-                const x = (c + 0.5) * L2.cw, sc = L2.sAt(x, 1);
-                const inK = L2.partOf(x, 1) === k;
-                const y0 = inK ? sc - L2.m * L2.d : sc - L2.d * 0.6, y1 = inK ? sc + (L2.n - 1 - L2.m) * L2.d : sc + L2.d * 0.6;
-                for (let r = Math.max(0, Math.floor(y0 / L2.ch)); r < Math.min(L2.R, Math.ceil(y1 / L2.ch)); r++) e += E[r][c] * (inK ? 1.5 : 1);
-            }
-            e *= 1 + 0.15 * Math.abs(k - (L2.n - 1) / 2) + 0.2 * Math.abs(s0 / M.H - 0.5);
-            if (!best || e < best.e) best = { e, k, s: s0 };
+    const L0 = layout(), E = cellEnergy(L0);
+    let best = null;
+    const steps = Math.max(1, Math.round((L0.sMax - L0.sMin) / (L0.ch / 3)));
+    for (let q = 0; q <= steps; q++) {
+        const s0 = L0.sMin + ((L0.sMax - L0.sMin) * q) / steps;
+        M.road = s0 / M.H;
+        const L = layout();
+        let e = 0;
+        for (let c = 0; c < L.C; c++) {
+            const y = L.road((c + 0.5) * L.cw, 1);
+            for (let r = Math.max(0, Math.floor((y - L.d * 0.6) / L.ch)); r < Math.min(L.R, Math.ceil((y + L.d * 0.6) / L.ch)); r++) e += E[r][c];
         }
+        e *= 1 + 0.25 * Math.abs((s0 - L.sMin) / Math.max(1, L.sMax - L.sMin) - 0.6);
+        if (!best || e < best.e) best = { e, s: s0 };
     }
     M.road = saveRoad;
     PIC.auto = best;
@@ -376,7 +357,9 @@ function seamDistance(L, res) {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) lab[y * w + x] = sectionAt(L, (x + 0.5) / res, (y + 0.5) / res);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = y * w + x;
-        if ((x < w - 1 && lab[i] !== lab[i + 1]) || (y < h - 1 && lab[i] !== lab[i + w]) || (x > 0 && lab[i] !== lab[i - 1]) || (y > 0 && lab[i] !== lab[i - w])) D[i] = 0;
+        // only A's edge changes partners when the puzzle opens (B and C keep their own picture)
+        const diff = (j) => lab[j] !== lab[i] && (lab[j] === 0 || lab[i] === 0);
+        if ((x < w - 1 && diff(i + 1)) || (y < h - 1 && diff(i + w)) || (x > 0 && diff(i - 1)) || (y > 0 && diff(i - w))) D[i] = 0;
     }
     const S2 = Math.SQRT2;
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -416,7 +399,6 @@ function paintRoad(L) {
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
         const i = y * w + x;
         let a = Math.max(0, Math.min(1, 1.6 * (1 - D[i] / fade)));
-        if (lab[i] >= 2) a = 1;
         md.data[i * 4 + 3] = Math.round(a * 255);
     }
     mx.putImageData(md, 0, 0);
@@ -434,7 +416,32 @@ function paintRoad(L) {
     const out = canvasOf(W, H), ox = out.getContext("2d");
     ox.drawImage(PIC.orig, 0, 0);
     ox.drawImage(road, 0, 0);
+    wrapEdges(L, out);
     return out;
+}
+
+// When the puzzle opens, C's right edge (the puzzle's right edge) comes to lie against B's left edge
+// (the left edge). Below the road, blend both edges into their mirrored average so they meet seamlessly.
+function wrapEdges(L, canvas) {
+    const k = PIC.pxPerMm, W = canvas.width, H = canvas.height, fw = Math.max(4, Math.round(0.6 * L.cw * k));
+    const cx = canvas.getContext("2d"), id = cx.getImageData(0, 0, W, H), p = id.data;
+    const top = Math.floor(Math.min(L.road(0, 1), L.road(M.W, -1)) * k - fw);
+    for (let y = Math.max(0, top); y < H; y++) {
+        // fade in below the road, so A's edges stay untouched
+        const yl = y / k, edgeL = L.road(0.5, 1), edgeR = L.road(M.W - 0.5, -1);
+        for (let t = 0; t < fw; t++) {
+            const a = 1 - t / fw;
+            const iL = (y * W + t) * 4, iR = (y * W + (W - 1 - t)) * 4;
+            const wl = clamp((yl - edgeL) / (0.4 * L.ch), 0, 1), wr = clamp((yl - edgeR) / (0.4 * L.ch), 0, 1);
+            const ww = Math.min(wl, wr) * a;
+            for (let q = 0; q < 3; q++) {
+                const m = (p[iL + q] + p[iR + q]) / 2;
+                p[iL + q] = p[iL + q] + (m - p[iL + q]) * ww;
+                p[iR + q] = p[iR + q] + (m - p[iR + q]) * ww;
+            }
+        }
+    }
+    cx.putImageData(id, 0, 0);
 }
 
 function rebuildPictures() {
@@ -457,17 +464,17 @@ function clipPoly(cx, pts, off, k) {
 // hole: null = transparent, or a fill colour.
 function compositeAt(stage, hole) {
     const L = layout(), k = PIC.pxPerMm;
-    const c = canvasOf(M.W * k, (stage === 0 ? M.H : L.OH) * k), cx = c.getContext("2d");
+    const c = canvasOf(M.W * k, (stage === 0 ? M.H : stage <= 2 ? M.H + awayY(L) : L.OH) * k), cx = c.getContext("2d");
     for (let i = 0; i < sectionCount(L); i++) {
         const off = offsetOf(L, i, stage);
         cx.save(); clipPoly(cx, regionPolygon(L, i), off, k);
         cx.drawImage(PIC.main, off.x * k, off.y * k);
         cx.restore();
     }
-    if (stage >= 2) {
+    if (stage >= 3) {
         const hb = holeBox(L);
         cx.save(); clipPoly(cx, holePolygon(L), { x: 0, y: 0 }, k);
-        if (stage === 3 && PIC.secret) cx.drawImage(PIC.secret, (hb.x - L.bleed) * k, (hb.y - L.bleed) * k);
+        if (stage === 4 && PIC.secret) cx.drawImage(PIC.secret, (hb.x - L.bleed) * k, (hb.y - L.bleed) * k);
         else if (hole) { cx.fillStyle = hole; cx.fillRect(0, 0, c.width, c.height); }
         cx.restore();
     }
@@ -606,13 +613,13 @@ async function aiGenerate(prompt) {
 function aiNote(text) { const el = $("aiNote"); if (el) { el.textContent = text; el.hidden = false; } }
 
 async function aiSecret() {
-    const comp = compositeAt(2, null);                  // the hole transparent = to be painted
+    const comp = compositeAt(3, null);                  // the hole transparent = to be painted
     fitSecret(await aiEdit(comp, secretPrompt()), true);
 }
 
 // Let the AI paint a real road where the road goes, so the seams disappear into it.
 function roadPrompt() {
-    return "This is an illustration with empty (transparent) areas: a band across the picture and a short crossing band. " +
+    return "This is an illustration with an empty (transparent) band running across the picture in steps. " +
         "Paint the empty areas as a plain, even, empty road (for example smooth cobblestones, a dirt path or a meadow path) " +
         "that fits naturally into the scene, in exactly the same art style, colours and lighting. Nothing may stand on the road. " +
         "Keep everything outside the empty areas unchanged.";
@@ -621,16 +628,16 @@ async function aiRoad() {
     const L = layout(), k = PIC.pxPerMm;
     const c = canvasOf(PIC.orig.width, PIC.orig.height), cx = c.getContext("2d");
     cx.drawImage(PIC.orig, 0, 0);
-    // clear the road: a band along the road line, and the crossroads strips
+    // clear the road: a band along the line under A
     const id = cx.getImageData(0, 0, c.width, c.height);
     for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
         const mx = (x + 0.5) / k, my = (y + 0.5) / k, sc = sectionAt(L, mx, my);
-        if (sc >= 2 || (L.partOf(mx, 1) !== L.k && Math.abs(my - L.sAt(mx, 1)) < L.d * 0.5)) id.data[(y * c.width + x) * 4 + 3] = 0;
+        if (Math.abs(my - L.road(mx, 1)) < L.d * 0.5) id.data[(y * c.width + x) * 4 + 3] = 0;
     }
     cx.putImageData(id, 0, 0);
     const out = await aiEdit(c, roadPrompt());
     // keep this layout: the road was painted for it
-    M.k = L.k; M.road = L.s / M.H; M.roadStyle = "picture";
+    M.road = L.s / M.H; M.roadStyle = "picture";
     PIC.orig = out;
     rebuildPictures();
 }
@@ -641,61 +648,58 @@ async function aiMain() {
 
 // ------------------------------------------------------------------ preview
 let lastLayoutKey = "";
-function render(animate) {
+let STAGE = 0, stageTimers = [];
+function secretOffset(L, stage) {
+    const hb = holeBox(L);
+    return stage >= 4 ? { x: 0, y: 0 } : { x: 0, y: M.H + 14 + (stage >= 1 && stage <= 2 ? awayY(L) : 0) - hb.y };
+}
+function viewHeight(L, stage) {
+    const hb = holeBox(L);
+    if (stage >= 4) return L.OH;
+    return (stage >= 1 && stage <= 2 ? M.H + awayY(L) : stage === 3 ? L.OH : M.H) + 14 + hb.h;
+}
+
+function render() {
     const { L, board, secret } = buildModel();
     const stage = $("stage");
-    const pad = 8, waitGap = 14;
+    const pad = 8;
     const hb = holeBox(L), holeW = hb.w, holeH = hb.h;
-    const viewH = M.showOpen ? L.OH : M.H + waitGap + holeH;
-    stage.setAttribute("viewBox", [-pad, -pad, M.W + 2 * pad, viewH + 2 * pad].join(" "));
-    const stageNow = M.showOpen ? 3 : 0;
-    const nSec = sectionCount(L);
+    stage.setAttribute("viewBox", [-pad - L.P * 0.15, -pad, M.W + 2 * pad + L.P * 0.15, Math.max(viewHeight(L, 0), viewHeight(L, 2), viewHeight(L, 4)) + 2 * pad].join(" "));
     let defs = "", body = "";
-    for (let i = 0; i < nSec; i++) {
-        defs += '<clipPath id="clip' + i + '"><path d="' + polyPath(regionPolygon(L, i)) + '"/></clipPath>';
-    }
+    for (let i = 0; i < 3; i++) defs += '<clipPath id="clip' + i + '"><path d="' + polyPath(regionPolygon(L, i)) + '"/></clipPath>';
     defs += '<clipPath id="clipS"><path d="' + polyPath(holePolygon(L)) + '"/></clipPath>';
     const edgesFor = (model, i) => model.edges.filter((e) => e.secs.indexOf(i) >= 0);
-    const tint = ["#d8b98f", "#b58f63", "#e7a978", "#9fb5a0", "#c9a3c4", "#a9bfd6", "#e2c46e", "#c4b39a"];
-    // sections
-    for (let i = 0; i < nSec; i++) {
-        const off = offsetOf(L, i, stageNow);
-        // opening: B first, then the road tiles one by one; closing: all together
-        const delay = !M.showOpen ? 0 : i === 1 ? 0 : i >= 2 ? 0.8 + (i - 2) * 0.35 : 0;
-        let g = '<g class="region sec' + i + '" style="transform: translate(' + off.x + "px," + off.y + "px); transition-delay:" + delay + 's">';
+    const tint = ["#d8b98f", "#e7a978", "#9fb5a0"];
+    for (let i = 0; i < 3; i++) {
+        const off = offsetOf(L, i, STAGE);
+        let g = '<g class="region sec' + i + '" data-sec="' + i + '" style="transform: translate(' + off.x + "px," + off.y + 'px)">';
         g += '<g clip-path="url(#clip' + i + ')">' + (PIC.mainUrl ?
             '<image href="' + PIC.mainUrl + '" width="' + M.W + '" height="' + M.H + '" preserveAspectRatio="none"/>' :
-            '<rect class="blank" width="' + M.W + '" height="' + M.H + '" style="fill:' + tint[i % tint.length] + '"/>') + "</g>";
+            '<rect class="blank" width="' + M.W + '" height="' + M.H + '" style="fill:' + tint[i] + '"/>') + "</g>";
         const es = edgesFor(board, i);
         if (M.showCuts) g += '<g class="cuts">' + es.filter((e) => e.secs.length === 1 && !e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
         g += '<g class="secline">' + es.filter((e) => e.secs.length === 2 || e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
-        if (M.showSections) {
-            const cc = sectionCentre(L, i), small = i >= 2;
-            g += '<text class="tag' + (small ? " small" : "") + '" x="' + cc.x + '" y="' + cc.y + '">' + sectionLetter(i) + "</text>";
-        }
+        if (M.showSections) { const cc = sectionCentre(L, i); g += '<text class="tag" x="' + cc.x + '" y="' + cc.y + '">' + sectionLetter(i) + "</text>"; }
         body += g + "</g>";
     }
-    // the secret pieces: waiting below the puzzle while it's closed, in the hole when it's open
+    // the secret pieces: waiting below the puzzle until the hole is there
     {
-        const off = M.showOpen ? { x: 0, y: 0 } : { x: 0, y: M.H + waitGap - hb.y };
-        const delay = M.showOpen ? 0.8 + (L.n - 1) * 0.35 + 0.3 : 0;
-        let g = '<g class="region secret' + (M.showOpen ? "" : " waiting") + '" style="transform: translate(' + off.x + "px," + off.y + "px); transition-delay:" + delay + 's">';
+        const off = secretOffset(L, STAGE);
+        let g = '<g class="region secret' + (STAGE >= 4 ? "" : " waiting") + '" data-sec="S" style="transform: translate(' + off.x + "px," + off.y + 'px)">';
         g += '<g clip-path="url(#clipS)">' + (PIC.secretUrl ?
             '<image href="' + PIC.secretUrl + '" x="' + (hb.x - L.bleed) + '" y="' + (hb.y - L.bleed) + '" width="' + (holeW + 2 * L.bleed) + '" height="' + (holeH + 2 * L.bleed) + '" preserveAspectRatio="none"/>' :
             '<rect class="blank secretblank" x="' + hb.x + '" y="' + hb.y + '" width="' + holeW + '" height="' + holeH + '"/>') + "</g>";
         if (M.showCuts) g += '<g class="cuts">' + secret.edges.filter((e) => !e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
         g += '<g class="secline">' + secret.edges.filter((e) => e.outline).map((e) => '<path d="' + edgeD(e) + '"/>').join("") + "</g>";
-        g += '<text class="tag star" x="' + (hb.x + holeW / 2) + '" y="' + (L.qAt(hb.x + holeW / 2, 1) + L.n * L.d / 2) + '">★</text>';
+        g += '<text class="tag star" x="' + (hb.x + holeW / 2) + '" y="' + (hb.y + holeH / 2) + '">★</text>';
         body += g + "</g>";
     }
-    // where the hole will be, and the outline of the opened puzzle
     stage.innerHTML = "<defs>" + defs + "</defs>" + body;
     stage.classList.toggle("nopic", !PIC.mainUrl);
-    stage.classList.toggle("open", M.showOpen);
+    stage.classList.toggle("open", STAGE >= 4);
 
-    const pieces = board.pieces;
     $("stat-size").textContent = Math.round(M.W) + " × " + Math.round(M.H) + " mm → opened " + Math.round(M.W) + " × " + Math.round(L.OH) + " mm";
-    $("stat-pieces").textContent = pieces + " pieces + " + secret.pieces + " in the secret bag";
+    $("stat-pieces").textContent = board.pieces + " pieces in 3 sections + " + secret.pieces + " in the secret bag";
     $("download").disabled = false;
     $("printBtn").disabled = !PIC.main;
     $("sheetBtn").disabled = false;
@@ -703,28 +707,42 @@ function render(animate) {
     updateLayoutUI(L);
     updatePictureUI();
     // the secret picture was painted for a hole of another size or place
-    const key = [L.n, L.b, L.k, Math.round(L.s), L.g.toFixed(1), L.cpc, L.R, M.W, M.H].join(",");
+    const key = [L.n, L.b, Math.round(L.s), L.g.toFixed(1), L.cpc, L.R, M.W, M.H, M.roadShape].join(",");
     if (lastLayoutKey && key !== lastLayoutKey && PIC.secret) $("secretStale").hidden = false;
     lastLayoutKey = key;
     scheduleSave();
 }
 
+// move the sections to a stage without rebuilding them, so the move animates
+function showStage(st) {
+    STAGE = st;
+    const L = layout();
+    document.querySelectorAll("#stage .region").forEach((g) => {
+        const sec = g.dataset.sec, off = sec === "S" ? secretOffset(L, st) : offsetOf(L, +sec, st);
+        g.style.transform = "translate(" + off.x + "px," + off.y + "px)";
+        if (sec === "S") g.classList.toggle("waiting", st < 4);
+    });
+    $("stage").classList.toggle("open", st >= 4);
+}
+
 function setOpen(open) {
     M.showOpen = open;
     document.querySelectorAll("#viewSeg button").forEach((b) => b.setAttribute("aria-pressed", (b.dataset.v === "open") === open));
-    render();
+    stageTimers.forEach(clearTimeout); stageTimers = [];
+    if (!open) { showStage(0); return; }
+    // play it like the instructions: B away, C over, B back in, then the secret pieces
+    if (STAGE === 4) { showStage(4); return; }
+    [1, 2, 3, 4].forEach((st, i) => stageTimers.push(setTimeout(() => showStage(st), i * 950)));
 }
 
 // ------------------------------------------------------------------ the steps, in words
 function stepTexts(L) {
-    const tiles = [];
-    for (let t = 0; t < L.n - 1; t++) tiles.push(sectionLetter(2 + t));
-    const rows = L.b === 1 ? "one row" : L.b + " rows";
+    const rows = L.b === 1 ? "a row" : L.b + " rows";
     return [
-        "Finish the puzzle. It's in sections: A above the road, B below it, and " + tiles.join(", ") + " on the crossroads.",
-        "Slide section B (everything below the road) down by " + rows + " of pieces. A gap opens along the road.",
-        "Lift " + tiles.join(", ") + " off the crossroads and lay them into the gap, left to right, in that order.",
-        "A hole has appeared where the crossroads was! Open the secret bag ★ and fill it.",
+        "Finish the puzzle: three sections, A on top, B bottom left and C bottom right. Then carefully slide section B away from the puzzle.",
+        "Slide section C to where B used to be. It drops " + rows + " lower along A's edge.",
+        "Now put B where C used to be, also " + rows + " lower. A hole has magically appeared in the puzzle!",
+        "Open the secret bag ★ and fill the hole to finish the puzzle.",
     ];
 }
 
@@ -773,62 +791,60 @@ function downloadPrint() {
 }
 
 function downloadTemplate() {
-    compositeAt(2, "#808080").toBlob((b) => saveBlob("magic-puzzle-secret-template.png", b, "image/png"), "image/png");
+    compositeAt(3, "#808080").toBlob((b) => saveBlob("magic-puzzle-secret-template.png", b, "image/png"), "image/png");
 }
 
 // the instruction sheet: four panels, like the ones in the box
 function sheetCanvas() {
     const L = layout();
-    const PW = 900, mmk = (PW - 80) / M.W, PH = Math.round(L.OH * mmk + 190);
+    const PW = 900, mmk = (PW - 80) / (M.W + L.P * 0.15), PH = Math.round((M.H + awayY(L)) * mmk + 190);
     const c = canvasOf(PW * 2, PH * 2 + 120), cx = c.getContext("2d");
     cx.fillStyle = "#fbf8f2"; cx.fillRect(0, 0, c.width, c.height);
     cx.fillStyle = "#2a2320"; cx.font = "700 40px 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center";
     cx.fillText("How to open the magic puzzle", c.width / 2, 72);
-    const texts = stepTexts(L);
-    const k0 = PIC.pxPerMm;
+    const texts = stepTexts(L), k0 = PIC.pxPerMm, colors = ["#c9a6d6", "#e7a978", "#9fb5a0"];
     for (let p = 0; p < 4; p++) {
-        const ox = (p % 2) * PW, oy = 120 + Math.floor(p / 2) * PH;
+        const ox = (p % 2) * PW, oy = 120 + Math.floor(p / 2) * PH, stage = p + 1;
         cx.strokeStyle = "#cbbfae"; cx.lineWidth = 2; cx.strokeRect(ox + 20, oy + 10, PW - 40, PH - 30);
-        // caption
         cx.fillStyle = "#2a2320"; cx.font = "600 24px 'Instrument Sans', sans-serif"; cx.textAlign = "left";
         wrapText(cx, (p + 1) + ". " + texts[p], ox + 40, oy + 50, PW - 80, 30);
-        const px = ox + 40, py = oy + 140;
-        const stage = p === 0 ? 0 : p === 1 ? 1 : p === 2 ? 2 : 3;
-        // picture
+        const px = ox + 40 + L.P * 0.15 * mmk, py = oy + 140;
         if (PIC.main) {
-            const comp = compositeAt(stage, stage === 2 ? "#2a2320" : null);
+            const comp = compositeAt(stage, stage === 3 ? "#2a2320" : null);
+            cx.save(); cx.beginPath(); cx.rect(ox + 22, oy + 12, PW - 44, PH - 34); cx.clip();
             cx.drawImage(comp, px, py, comp.width / k0 * mmk, comp.height / k0 * mmk);
+            cx.restore();
+        } else if (stage === 3) {
+            cx.fillStyle = "#2a2320"; cx.fill(new Path2D(polyPath(holePolygon(L), px / mmk, py / mmk, mmk)));
         }
-        // section outlines and letters
-        cx.lineWidth = 3; cx.strokeStyle = "#7a2e8f";
-        for (let i = 0; i < sectionCount(L); i++) {
-            const off = offsetOf(L, i, Math.min(stage, 2));
-            if (!PIC.main) { cx.fillStyle = ["#d8b98f", "#b58f63", "#e7a978", "#9fb5a0", "#c9a3c4", "#a9bfd6", "#e2c46e"][i % 7]; }
+        for (let i = 0; i < 3; i++) {
+            const off = offsetOf(L, i, stage);
             const poly = new Path2D(polyPath(regionPolygon(L, i), off.x, off.y, mmk));
             cx.save(); cx.translate(px, py);
-            if (!PIC.main) cx.fill(poly);
-            cx.stroke(poly);
+            if (!PIC.main) { cx.fillStyle = colors[i]; cx.fill(poly); }
+            cx.lineWidth = 3; cx.strokeStyle = "#5b2a6e"; cx.stroke(poly);
             cx.restore();
-            const cc = sectionCentre(L, i);
-            cx.font = (i >= 2 ? "700 26px" : "700 44px") + " 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle";
-            cx.lineWidth = 6; cx.strokeStyle = "rgba(255,255,255,.9)";
-            cx.strokeText(sectionLetter(i), px + (cc.x + off.x) * mmk, py + (cc.y + off.y) * mmk);
-            cx.fillStyle = "#7a2e8f"; cx.fillText(sectionLetter(i), px + (cc.x + off.x) * mmk, py + (cc.y + off.y) * mmk);
-            cx.lineWidth = 3; cx.strokeStyle = "#7a2e8f"; cx.textBaseline = "alphabetic";
+            const cc = sectionCentre(L, i), tx = px + (cc.x + off.x) * mmk, ty = py + (cc.y + off.y) * mmk;
+            cx.font = "700 48px 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle";
+            cx.lineWidth = 6; cx.strokeStyle = "rgba(255,255,255,.9)"; cx.strokeText(sectionLetter(i), tx, ty);
+            cx.fillStyle = "#5b2a6e"; cx.fillText(sectionLetter(i), tx, ty);
+            cx.textBaseline = "alphabetic";
         }
-        // arrows
-        cx.strokeStyle = "#1f8fbf"; cx.fillStyle = "#1f8fbf"; cx.lineWidth = 5;
-        if (p === 1) { const bc = sectionCentre(L, 1); arrow(cx, px + bc.x * mmk, py + (bc.y + L.ch * 0.6) * mmk, px + bc.x * mmk, py + (bc.y + L.ch * (0.6 + L.b * 1.2)) * mmk); }
-        if (p === 2) for (let t = 0; t < L.n - 1; t++) {
-            const from = sectionCentre(L, 2 + t), o = offsetOf(L, 2 + t, 2), to = { x: from.x + o.x, y: from.y + o.y };
-            const dir = Math.sign(to.x - from.x), gap = L.P * 0.28;
-            arrow(cx, px + (from.x + dir * gap) * mmk, py + (from.y - L.ch * 0.15) * mmk, px + (to.x - dir * gap) * mmk, py + (to.y - L.ch * 0.15) * mmk, true);
-        }
-        if (p === 3) {
+        // arrows for the move in this step
+        cx.strokeStyle = "#1f8fbf"; cx.fillStyle = "#1f8fbf"; cx.lineWidth = 6;
+        const moveArrow = (i, from, to) => {
+            const cc = sectionCentre(L, i), a = offsetOf(L, i, from), b = offsetOf(L, i, to);
+            arrow(cx, px + (cc.x + a.x) * mmk, py + (cc.y + a.y - L.ch * 0.8) * mmk, px + (cc.x + b.x) * mmk, py + (cc.y + b.y - L.ch * 0.8) * mmk, true);
+        };
+        if (p === 0) moveArrow(1, 0, 1);
+        if (p === 1) moveArrow(2, 1, 2);
+        if (p === 2) moveArrow(1, 2, 3);
+        if (p === 3 && !PIC.secret) {
+            const hb = holeBox(L);
             cx.font = "700 60px 'Bricolage Grotesque', sans-serif"; cx.textAlign = "center"; cx.textBaseline = "middle";
             cx.fillStyle = "#f2c230"; cx.strokeStyle = "#2a2320"; cx.lineWidth = 4;
-            const sx = px + (L.K0 + L.cpc / 2) * L.cw * mmk, sy = py + (L.qAt((L.kx0 + L.kx1) / 2, 1) + L.n * L.d / 2) * mmk;
-            if (!PIC.secret) { cx.strokeText("★", sx, sy); cx.fillText("★", sx, sy); }
+            const sx = px + (hb.x + hb.w / 2) * mmk, sy = py + (hb.y + hb.h / 2) * mmk;
+            cx.strokeText("★", sx, sy); cx.fillText("★", sx, sy);
             cx.textBaseline = "alphabetic";
         }
     }
@@ -864,13 +880,13 @@ function downloadSheet() {
 }
 
 // ------------------------------------------------------------------ saving in this browser
-const SAVE_KEYS = ["W", "H", "n", "bandRows", "roadShape", "k", "road", "roadStyle", "piece", "knob", "seed", "secretText", "styleText", "showCuts", "showSections"];
+const SAVE_KEYS = ["W", "H", "n", "bandRows", "roadShape", "road", "roadStyle", "piece", "knob", "seed", "secretText", "styleText", "showCuts", "showSections"];
 let saveTimer = null;
 function scheduleSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
         try {
-            const s = { v: 4 };
+            const s = { v: 5 };
             SAVE_KEYS.forEach((k) => { s[k] = M[k]; });
             localStorage.setItem("jw-magic-settings", JSON.stringify(s));
         } catch (e) { /* storage blocked */ }
@@ -881,8 +897,8 @@ function loadSaved() {
         const s = JSON.parse(localStorage.getItem("jw-magic-settings") || "null");
         if (!s) return;
         ["W", "H", "knob", "seed", "secretText", "styleText", "showCuts"].forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
-        if (s.v === 4) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
-        M.n = clamp(M.n, 3, 6);
+        if (s.v === 5) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
+        M.n = clamp(M.n, 3, 5);
     } catch (e) { /* ignore */ }
 }
 
@@ -908,16 +924,7 @@ function updateLayoutUI(L) {
     const road = $("mRoad");
     road.min = Math.floor(L.sMin); road.max = Math.ceil(L.sMax); road.value = Math.round(L.s);
     $("mRoadOut").textContent = (M.road == null && PIC.auto ? "Auto · " : "") + Math.round(L.s) + " mm";
-    const sel = $("mK");
-    const want = (M.k == null ? "auto" : String(L.k));
-    let html = '<option value="auto">Auto' + (PIC.auto ? " (column " + (L.k + 1) + ")" : "") + "</option>";
-    for (let j = 1; j <= L.n - 2; j++) html += '<option value="' + j + '">Column ' + (j + 1) + " of " + L.n + "</option>";
-    sel.innerHTML = html; sel.value = want;
-    document.querySelectorAll("#shapeSeg button").forEach((b) => {
-        b.setAttribute("aria-pressed", b.dataset.v === M.roadShape);
-        b.disabled = false;
-    });
-    $("shapeNote").hidden = true;
+    document.querySelectorAll("#shapeSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === M.roadShape));
     $("holeOut").textContent = Math.round(L.P) + " × " + Math.round(L.n * L.d) + " mm";
     $("mB").value = L.b;
 }
@@ -947,12 +954,11 @@ function init() {
     });
     num("mW", "W", 100, 2000);
     num("mH", "H", 100, 2000);
-    $("mN").addEventListener("change", () => { M.n = parseInt($("mN").value); M.k = null; chooseRoad(); relayout(); });
+    $("mN").addEventListener("change", () => { M.n = parseInt($("mN").value); chooseRoad(); relayout(); });
     $("mB").addEventListener("change", () => { M.bandRows = parseInt($("mB").value); chooseRoad(); relayout(); });
-    $("mK").addEventListener("change", () => { const v = $("mK").value; M.k = v === "auto" ? null : parseInt(v); relayout(); });
     $("mRoad").addEventListener("input", () => { const L = layout(); M.road = parseInt($("mRoad").value) / M.H; relayout(); });
     document.querySelectorAll("#shapeSeg button").forEach((b) => b.addEventListener("click", () => { M.roadShape = b.dataset.v; M.road = null; chooseRoad(); relayout(); }));
-    $("roadAuto").addEventListener("click", () => { M.road = null; M.k = null; relayout(); });
+    $("roadAuto").addEventListener("click", () => { M.road = null; chooseRoad(); relayout(); });
     $("mPiece").addEventListener("input", () => { M.piece = +$("mPiece").value; $("mPieceOut").textContent = M.piece + " mm"; chooseRoad(); relayout(); });
     document.querySelectorAll("#roadSeg button").forEach((b) => b.addEventListener("click", () => { M.roadStyle = b.dataset.v; relayout(); }));
     $("aiRoad").addEventListener("click", async () => {
@@ -973,7 +979,7 @@ function init() {
         if (!f) return;
         try {
             const img = await loadImage(URL.createObjectURL(f));
-            M.road = null; M.k = null;
+            M.road = null;
             await setMainPicture(img);
             warn(""); lastLayoutKey = ""; render();
         } catch (err) { warn(err.message); }
@@ -988,7 +994,7 @@ function init() {
             const openAr = M.W / L.OH, holeAr = L.P / (L.n * L.d);
             fitSecret(img, Math.abs(Math.log(ar / openAr)) < Math.abs(Math.log(ar / holeAr)));
             $("secretStale").hidden = true;
-            warn(""); setOpen(true);
+            warn(""); render(); setOpen(true);
         } catch (err) { warn(err.message); }
     });
     $("templateBtn").addEventListener("click", downloadTemplate);
@@ -1009,13 +1015,13 @@ function init() {
     $("forgetKey").addEventListener("click", () => { try { localStorage.removeItem("jw-openai-key"); } catch (e) { /* */ } updatePictureUI(); });
     $("aiSecret").addEventListener("click", async () => {
         busy(true, "Painting the secret area… (this can take a minute)");
-        try { await aiSecret(); $("secretStale").hidden = true; warn(""); setOpen(true); }
+        try { await aiSecret(); $("secretStale").hidden = true; warn(""); render(); setOpen(true); }
         catch (err) { warn("The image service failed: " + err.message); }
         busy(false);
     });
     $("aiMain").addEventListener("click", async () => {
         busy(true, "Painting the picture… (this can take a minute)");
-        try { M.road = null; M.k = null; await aiMain(); warn(""); lastLayoutKey = ""; render(); }
+        try { M.road = null; await aiMain(); warn(""); lastLayoutKey = ""; render(); }
         catch (err) { warn("The image service failed: " + err.message); }
         busy(false);
     });

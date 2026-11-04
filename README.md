@@ -25,14 +25,16 @@ Files: `engine.js` is the original generator (lightly patched, with hooks), `app
 
 ## Magic Puzzle (beta) — `magic/`
 
-A puzzle with a twist, like the shift-and-reveal puzzles from the Magic Puzzle Company. The finished puzzle has a road running across it, slanted (or zigzag, or straight), so the sections have long straight, slanted edges (the pieces along them are cut straight, like edge pieces): A above the road, B below it, and a crossroads made of slanted strips (C, D…). To open it:
+A puzzle with a twist, like the shift-and-reveal puzzles from the Magic Puzzle Company. The finished puzzle has three sections: A on top, B bottom left, C bottom right. To open it:
 
-1. Slide section B (everything below the road) down one row (or more).
-2. Lift the strips off the crossroads and lay them into the slanted gap that opened along the road.
-3. A slanted hole has appeared in the middle where the crossroads was; the secret pieces fill it. The opened puzzle is one row taller.
+1. Slide B away from the puzzle.
+2. Slide C to where B used to be (it drops a row or two along A's edge).
+3. Put B where C used to be (also a little lower). A hole has appeared in the middle; the secret pieces fill it. The opened puzzle is a little taller.
 
-- Seams follow lattice lines and use the same non-locking tooth everywhere, so sections slide apart and lock into either arrangement.
-- The road is painted onto every seam that changes partners (a seamless tile), so the picture lines up both ways. Road style: plain path (any picture), the picture's own texture, or painted into the scene with AI. Road position and crossroads column are chosen from the calmest part of the picture, or by hand.
+Why it works: A's bottom edge has the same slanted shape in every part of the width but steps in height from part to part, so B and C fit under A in both places and the space left over is the hole. Pieces along the seams are cut straight, like edge pieces.
+
+- Seams have one small non-locking tooth per piece, so the sections fit in either arrangement.
+- A road is painted along A's edge, and the puzzle's left and right edges are blended to match (they meet when opened), so the picture lines up both ways. Road style: plain path, the picture's own colour, or painted into the scene with AI. The edge height is chosen from the calmest part of the picture, or by hand.
 - Secret picture: painted by AI into the opened puzzle with the hole empty (own OpenAI key, kept in the browser; falls back to DALL·E without a verified organisation), via a template + prompt for ChatGPT, or uploaded.
 - Downloads: cut file (SVG/PDF/DXF) with the finished puzzle and the secret pieces beside it, a matching picture for printing, and a four-panel instruction sheet.
 

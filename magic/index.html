@@ -497,7 +497,7 @@
             <header class="brand">
                 <a class="back" href="../">← Jigsaw Workshop</a>
                 <h1>Magic Puzzle <span class="beta">beta</span></h1>
-                <p>A puzzle with a twist: when it's finished, slide its sections along the road, and a hole appears in the middle of the picture. The secret pieces fill it, and the picture tells a new story.</p>
+                <p>A puzzle with a twist: it's made in three sections. When it's finished, swap B and C, and a hole appears in the middle of the picture. The secret pieces fill it, and the picture tells a new story.</p>
             </header>
 
             <section class="step">
@@ -512,16 +512,15 @@
                 </div>
                 <div class="row2">
                     <div class="field">
-                        <label class="label" for="mN">Road parts</label>
+                        <label class="label" for="mN">Hole width</label>
                         <select id="mN" class="btn" style="text-align:left">
-                            <option value="3">3</option>
-                            <option value="4">4</option>
-                            <option value="5">5</option>
-                            <option value="6">6</option>
+                            <option value="3">⅓ of the puzzle</option>
+                            <option value="4">¼ of the puzzle</option>
+                            <option value="5">⅕ of the puzzle</option>
                         </select>
                     </div>
                     <div class="field">
-                        <label class="label" for="mB">B slides down</label>
+                        <label class="label" for="mB">B and C drop</label>
                         <select id="mB" class="btn" style="text-align:left">
                             <option value="1">1 row</option>
                             <option value="2">2 rows</option>
@@ -530,7 +529,7 @@
                     </div>
                 </div>
                 <div class="field">
-                    <span class="label">Road shape (the seams follow it)</span>
+                    <span class="label">Edge under A</span>
                     <div class="seg" id="shapeSeg" role="group" aria-label="Road shape">
                         <button type="button" data-v="slant" aria-pressed="true">Slanted</button>
                         <button type="button" data-v="wavy" aria-pressed="false">Zigzag</button>
@@ -539,15 +538,11 @@
                     <p class="hint" id="shapeNote" hidden>The road can only slant when B slides at least 2 rows (otherwise the strips would fall apart), so it's straight now.</p>
                 </div>
                 <div class="range">
-                    <label class="label" for="mRoad">Road height</label>
+                    <label class="label" for="mRoad">Edge height</label>
                     <input type="range" id="mRoad" min="1" max="9" step="1">
                     <output id="mRoadOut"></output>
                 </div>
-                <div class="field">
-                    <label class="label" for="mK">Crossroads (where the hole appears)</label>
-                    <select id="mK" class="btn" style="text-align:left"></select>
-                    <p class="hint">Hole: <strong id="holeOut"></strong>. More road parts give a taller hole. <button type="button" class="linkbtn" id="roadAuto">Choose from the picture</button></p>
-                </div>
+                <p class="hint">Hole: <strong id="holeOut"></strong>. <button type="button" class="linkbtn" id="roadAuto">Choose the road from the picture</button></p>
                 <div class="range">
                     <label class="label" for="mPiece">Piece size</label>
                     <input type="range" id="mPiece" min="15" max="60" step="1">
@@ -561,7 +556,7 @@
                 <details class="box">
                     <summary>How the trick works</summary>
                     <ol class="how" id="howSteps"></ol>
-                    <p class="hint">The seams between sections run along the road and all have the same knob, so the sections lock together both ways, and the picture lines up because the road looks the same everywhere.</p>
+                    <p class="hint">A's bottom edge steps down from part to part. When C moves left and B right, both a little lower, they fit under A again, and the space that is left over is the hole. The seams have small teeth that fit both ways, and a road painted along A's edge makes the picture line up.</p>
                 </details>
             </section>
 

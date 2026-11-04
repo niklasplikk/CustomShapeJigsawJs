@@ -24,7 +24,7 @@ const M = {
     piece: 25,                  // mm
     knob: 13,                   // % of piece size
     seed: Math.floor(Math.random() * 9999),
-    roadStyle: "plain",         // plain | picture
+    roadStyle: "outline",       // outline | road | none: how the seam under A is drawn into the picture
     secretText: "",
     styleText: "",
     showOpen: false,
@@ -383,8 +383,23 @@ function seamDistance(L, res) {
 // narrower blend (best after the road was painted into the picture with AI).
 function paintRoad(L) {
     const k = PIC.pxPerMm, res = Math.min(3, k);
+    if (M.roadStyle !== "road") {
+        // the picture as it is, with (by default) an outline along A's edge, like the ink lines in the art
+        const W0 = PIC.orig.width, H0 = PIC.orig.height, out = canvasOf(W0, H0), ox = out.getContext("2d");
+        ox.drawImage(PIC.orig, 0, 0);
+        if (M.roadStyle === "outline") {
+            const pts = [];
+            for (let c = 0; c <= L.C; c++) { const x = c * L.cw; if (c > 0) pts.push({ x, y: L.road(x, -1) }); if (c < L.C) pts.push({ x, y: L.road(x, 1) }); }
+            const line = () => { ox.beginPath(); pts.forEach((p, i) => (i ? ox.lineTo : ox.moveTo).call(ox, p.x * k, p.y * k)); };
+            ox.lineJoin = "round"; ox.lineCap = "round";
+            ox.strokeStyle = "rgba(20,14,10,0.25)"; ox.lineWidth = 2.6 * k; line(); ox.stroke();
+            ox.strokeStyle = "rgba(25,18,12,0.9)"; ox.lineWidth = 1.1 * k; line(); ox.stroke();
+        }
+        wrapEdges(L, out);
+        return out;
+    }
     const { D, w, h, lab } = seamDistance(L, res);
-    const fade = (M.roadStyle === "picture" ? 0.3 : 0.45) * Math.min(L.cw, L.ch) * res;
+    const fade = 0.45 * Math.min(L.cw, L.ch) * res;
     // road colour: the median of the picture along the seams
     const small = canvasOf(w, h);
     small.getContext("2d").drawImage(PIC.orig, 0, 0, w, h);
@@ -393,7 +408,7 @@ function paintRoad(L) {
     for (let i = 0; i < w * h; i += 3) if (D[i] < fade * 0.7) for (let q = 0; q < 3; q++) vals[q].push(sd[i * 4 + q]);
     const med = vals.map((v) => { v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 160; });
     const grey = (med[0] + med[1] + med[2]) / 3;
-    const base = M.roadStyle === "picture" ? med : med.map((v) => Math.min(235, (v * 0.55 + grey * 0.45) * 1.12 + 18));
+    const base = med.map((v) => Math.min(235, (v * 0.55 + grey * 0.45) * 1.12 + 18));
     // where the road goes: soft along the seams, solid on the side-road strips
     const mask = canvasOf(w, h), mx = mask.getContext("2d"), md = mx.createImageData(w, h);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -525,11 +540,11 @@ function mainPrompt() {
     const shape = M.roadShape === "slant" ? "slopes down from left to right" : M.roadShape === "wavy" ? "zigzags" : "runs level";
     return "A detailed, busy illustration for a jigsaw puzzle, aspect ratio " + ratio + ":1. " +
         (M.styleText.trim() || "Colourful storybook style with lots of little characters.") +
-        " A plain, even road (or path, river or strip of meadow) about " + pct(L.d * 0.8) + "% of the picture tall runs across the whole picture in " + L.n +
-        " steps, like a staircase seen from the side: in each step it " + shape + ", and then it jumps to a new height at the next step. " +
-        "Measured from the top of the picture, the middle of the road is " + parts.join(", ") + ". " +
-        "The road is plain and even everywhere with nothing on it, and the ground at the far left and the far right edge of the lower half looks the same. " +
-        "Put the interesting things above and below the road.";
+        " A long, clear line runs across the whole picture in " + L.n + " steps, like a staircase seen from the side: " +
+        "for example the foot of a long wall or a row of houses, a fence, a market counter or a riverbank. In each step it " + shape +
+        ", then it jumps to a new height at the next step. Measured from the top of the picture, the line is " + parts.join(", ") + ". " +
+        "The scene is busy on both sides of the line, but nothing crosses it: people, animals and objects end at the line or stand clear of it, " +
+        "and the strip just below the line looks alike all the way along. The far left and far right edges of the lower part of the picture show the same kind of ground.";
 }
 
 // ------------------------------------------------------------------ AI (OpenAI image API, the user's own key)
@@ -628,12 +643,14 @@ async function aiSecret() {
     fitSecret(await aiEdit(comp, secretPrompt()), true);
 }
 
-// Let the AI paint a real road where the road goes, so the seams disappear into it.
+// Let the AI repaint a narrow band along the seam under A, so the seam follows a line in the scene.
 function roadPrompt() {
-    return "This is an illustration with an empty (transparent) band running across the picture in steps. " +
-        "Paint the empty areas as a plain, even, empty road (for example smooth cobblestones, a dirt path or a meadow path) " +
-        "that fits naturally into the scene, in exactly the same art style, colours and lighting. Nothing may stand on the road. " +
-        "Keep everything outside the empty areas unchanged.";
+    return "This is an illustration with an empty (transparent) band running across it in steps. Repaint the band so the " +
+        "picture continues naturally, in exactly the same art style, colours and lighting, and so that a clear line runs " +
+        "exactly along the middle of the band: for example the foot of a wall or a row of houses, a fence, a counter, a kerb " +
+        "or a riverbank. The scene can stay busy on both sides, but nothing may cross that line: people, animals and objects " +
+        "end at it or stand clear of it, and the strip just below the line looks alike all the way along. " +
+        "Keep everything outside the band unchanged.";
 }
 async function aiRoad() {
     const L = layout(), k = PIC.pxPerMm;
@@ -643,12 +660,12 @@ async function aiRoad() {
     const id = cx.getImageData(0, 0, c.width, c.height);
     for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
         const mx = (x + 0.5) / k, my = (y + 0.5) / k, sc = sectionAt(L, mx, my);
-        if (Math.abs(my - L.road(mx, 1)) < L.d * 0.5) id.data[(y * c.width + x) * 4 + 3] = 0;
+        if (Math.abs(my - L.road(mx, 1)) < L.ch * 0.45) id.data[(y * c.width + x) * 4 + 3] = 0;
     }
     cx.putImageData(id, 0, 0);
     const out = await aiEdit(c, roadPrompt());
     // keep this layout: the road was painted for it
-    M.road = L.s / M.H; M.roadStyle = "picture";
+    M.road = L.s / M.H;
     PIC.orig = out;
     rebuildPictures();
 }
@@ -909,6 +926,7 @@ function loadSaved() {
         if (!s) return;
         ["W", "H", "knob", "seed", "secretText", "styleText", "showCuts"].forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
         if (s.v === 5) SAVE_KEYS.forEach((k) => { if (s[k] !== undefined) M[k] = s[k]; });
+        if (["outline", "road", "none"].indexOf(M.roadStyle) < 0) M.roadStyle = "outline";
         M.n = clamp(M.n, 3, 5);
     } catch (e) { /* ignore */ }
 }
@@ -973,7 +991,7 @@ function init() {
     $("mPiece").addEventListener("input", () => { M.piece = +$("mPiece").value; $("mPieceOut").textContent = M.piece + " mm"; chooseRoad(); relayout(); });
     document.querySelectorAll("#roadSeg button").forEach((b) => b.addEventListener("click", () => { M.roadStyle = b.dataset.v; relayout(); }));
     $("aiRoad").addEventListener("click", async () => {
-        busy(true, "Painting the road… (this can take a minute)");
+        busy(true, "Painting along the seam… (this can take a minute)");
         try { await aiRoad(); warn(""); render(); }
         catch (err) { warn("The image service failed: " + err.message); }
         busy(false);

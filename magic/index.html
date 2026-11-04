@@ -542,7 +542,7 @@
                     <input type="range" id="mRoad" min="1" max="9" step="1">
                     <output id="mRoadOut"></output>
                 </div>
-                <p class="hint">Hole: <strong id="holeOut"></strong>. <button type="button" class="linkbtn" id="roadAuto">Choose the road from the picture</button></p>
+                <p class="hint">Hole: <strong id="holeOut"></strong>. <button type="button" class="linkbtn" id="roadAuto">Place the seam from the picture</button></p>
                 <div class="range">
                     <label class="label" for="mPiece">Piece size</label>
                     <input type="range" id="mPiece" min="15" max="60" step="1">
@@ -556,13 +556,13 @@
                 <details class="box">
                     <summary>How the trick works</summary>
                     <ol class="how" id="howSteps"></ol>
-                    <p class="hint">A's bottom edge steps down from part to part. When C moves left and B right, both a little lower, they fit under A again, and the space that is left over is the hole. The seams have small teeth that fit both ways, and a road painted along A's edge makes the picture line up.</p>
+                    <p class="hint">A's bottom edge steps down from part to part. When C moves left and B right, both a little lower, they fit under A again, and the space that is left over is the hole. The seams have small teeth that fit both ways. The picture lines up best when A's edge follows a line in the scene that nothing crosses.</p>
                 </details>
             </section>
 
             <section class="step">
                 <h2><span class="n">2</span>Main picture</h2>
-                <p class="hint">The picture for the finished puzzle. The road is painted along the calmest band of it (a meadow, the sea, a street), so pictures with one look best.</p>
+                <p class="hint">The picture for the finished puzzle. The seam under A goes where the picture is calmest; pictures with a long line across them (a wall, a fence, a shore) work best.</p>
                 <label class="drop">
                     <strong>Choose a picture</strong>
                     <span class="hint">Any picture works. It's cropped to the puzzle's shape.</span>
@@ -574,13 +574,14 @@
                 </div>
                 <textarea id="mainPromptText" hidden readonly></textarea>
                 <div class="field">
-                    <span class="label">Road</span>
-                    <div class="seg" id="roadSeg" role="group" aria-label="Road">
-                        <button type="button" data-v="plain" aria-pressed="true">Plain path</button>
-                        <button type="button" data-v="picture" aria-pressed="false">From the picture</button>
+                    <span class="label">Seam under A</span>
+                    <div class="seg" id="roadSeg" role="group" aria-label="Seam under A">
+                        <button type="button" data-v="outline" aria-pressed="true">Ink line</button>
+                        <button type="button" data-v="none" aria-pressed="false">Nothing</button>
+                        <button type="button" data-v="road" aria-pressed="false">Plain road</button>
                     </div>
-                    <button type="button" class="btn" id="aiRoad" disabled>Paint the road with AI</button>
-                    <p class="hint">The seams run along the road, so it has to look the same everywhere. A plain path works with any picture; AI can paint a real road into the scene.</p>
+                    <button type="button" class="btn" id="aiRoad" disabled>Make the seam fit with AI</button>
+                    <p class="hint">B and C swap places under A, so whatever is just below A's edge has to fit in both places. Like in the boxed puzzles, the seam should follow a line in the picture (the foot of a wall, a fence, a riverbank) that nothing crosses. The AI button repaints a narrow band along the seam that way.</p>
                 </div>
                 <span class="done" id="mainDone" hidden>✓ Main picture in place</span>
                 <details class="box">

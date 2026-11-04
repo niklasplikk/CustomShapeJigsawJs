@@ -34,7 +34,7 @@ A puzzle with a twist, like the shift-and-reveal puzzles from the Magic Puzzle C
 Why it works: A's bottom edge has the same slanted shape in every part of the width but steps in height from part to part, so B and C fit under A in both places and the space left over is the hole. Pieces along the seams are cut straight, like edge pieces.
 
 - Seams have one small non-locking tooth per piece, so the sections fit in either arrangement.
-- A road is painted along A's edge, and the puzzle's left and right edges are blended to match (they meet when opened), so the picture lines up both ways. Road style: plain path, the picture's own colour, or painted into the scene with AI. The edge height is chosen from the calmest part of the picture, or by hand.
+- Like in the boxed puzzles, the seam under A should follow a line in the picture (the foot of a wall, a fence, a riverbank) that nothing crosses. The app can draw an ink line along it, and AI can repaint a narrow band along the seam that way. The puzzle's left and right edges are blended to match (they meet when opened).
 - Secret picture: painted by AI into the opened puzzle with the hole empty (own OpenAI key, kept in the browser; falls back to DALL·E without a verified organisation), via a template + prompt for ChatGPT, or uploaded.
 - Downloads: cut file (SVG/PDF/DXF) with the finished puzzle and the secret pieces beside it, a matching picture for printing, and a four-panel instruction sheet.
 

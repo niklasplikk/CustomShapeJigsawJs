@@ -18,6 +18,8 @@ const M = {
     W: 400, H: 300,             // closed puzzle, mm
     n: 3,                       // the width is cut into n parts: B is n - 1 of them, C one; the hole is one part wide
     bandRows: 2,                // how many rows B and C drop when they move
+    drop: null,                 // or the drop in mm, fitted to the picture
+    slope: null,                // or the slant of A's edge in mm per part, fitted to the picture
     roadShape: "slant",         // straight | slant | wavy
     k: null,                    // hole column (null = choose from the picture)
     road: null,                 // road height at the hole, as a fraction of the height (null = from the picture)
@@ -56,10 +58,11 @@ function layout() {
     const cpc = Math.max(2, Math.round(M.W / n / M.piece));
     const C = n * cpc, P = M.W / n, cw = P / cpc;
     const R = Math.max(3, Math.round(M.H / M.piece)), ch = M.H / R;
-    const d = b * ch;
+    const d = M.drop != null ? clamp(M.drop, 0.4 * ch, 3 * ch) : b * ch;
     const mrg = 0.8 * ch;
     const room = M.H - 2 * mrg - (n - 1) * d;
     let g = M.roadShape === "slant" ? Math.min(P * 0.55, room - 0.3 * ch) : M.roadShape === "wavy" ? Math.min(P * 0.25, room - 0.3 * ch, ch) : 0;
+    if (M.slope != null && M.roadShape !== "wavy") g = Math.min(M.slope, room);
     g = Math.max(0, g);
     const peak = Math.max(1, Math.round(cpc / 2)) * cw;      // zigzag turns on a column line
     const gU = (u) => M.roadShape === "slant" ? (g * u) / P :
@@ -303,7 +306,9 @@ async function setMainPicture(img) {
     PIC.pxPerMm = Math.max(4, Math.min(3000 / M.W, (img.naturalWidth || img.width) / M.W));
     PIC.orig = coverCanvas(img, M.W * PIC.pxPerMm, M.H * PIC.pxPerMm);
     PIC.secret = null; PIC.secretUrl = null;
+    M.drop = null; M.slope = null;
     chooseRoad();
+    fitToPicture(false);
     rebuildPictures();
 }
 
@@ -322,6 +327,80 @@ function cellEnergy(L) {
         E[r][c] += g;
     }
     return E;
+}
+
+// Fit A's edge to a stepped line that is already in the picture (a fence, a wall foot): try heights,
+// drops and slants, and keep the one whose line runs along the strongest horizontal edges.
+// Sets M.road, M.drop and M.slope and returns true when a clear line was found.
+function fitToPicture(force) {
+    if (!PIC.orig || M.roadShape === "wavy") return false;
+    const L0 = layout(), n = L0.n, P = L0.P, ch = L0.ch, mrg = 0.8 * ch;
+    const gw = Math.round(M.W), gh = Math.round(M.H);
+    const sm = canvasOf(gw, gh); sm.getContext("2d").drawImage(PIC.orig, 0, 0, gw, gh);
+    const px = sm.getContext("2d").getImageData(0, 0, gw, gh).data;
+    // colour just below minus just above each point, averaged over 3 mm: a real line in the picture gives the
+    // same difference all along it, a busy picture averages out
+    const DV = [new Float32Array(gw * gh), new Float32Array(gw * gh), new Float32Array(gw * gh)];
+    for (let y = 3; y < gh - 3; y++) for (let x = 0; x < gw; x++) {
+        const i = y * gw + x;
+        for (let q = 0; q < 3; q++) {
+            const a = px[(i - gw) * 4 + q] + px[(i - 2 * gw) * 4 + q] + px[(i - 3 * gw) * 4 + q];
+            const b = px[i * 4 + q] + px[(i + gw) * 4 + q] + px[(i + 2 * gw) * 4 + q];
+            DV[q][i] = (b - a) / 3;
+        }
+    }
+    const xs = [];
+    for (let j = 0; j < n; j++) for (let u = 4; u < P - 4; u += 2) xs.push({ j, u, x: Math.round(j * P + u) });
+    // and what lies just above and just below the line should look alike in every part, because the parts
+    // swap partners when the puzzle opens (otherwise a fence can end up on the wrong side in one part)
+    const BAND = 6;
+    const score = (s0, d, g) => {
+        const sum = [], up = [], dn = [];
+        for (let j = 0; j < n; j++) { sum.push([0, 0, 0, 0]); up.push([0, 0, 0]); dn.push([0, 0, 0]); }
+        for (const q of xs) {
+            const y = Math.round(s0 + (g * q.u) / P - (q.j === 0 ? 0 : (n - q.j) * d));
+            if (y < BAND + 1 || y >= gh - BAND - 1) return -1;
+            const i = y * gw + q.x, t = sum[q.j];
+            t[0] += DV[0][i]; t[1] += DV[1][i]; t[2] += DV[2][i]; t[3]++;
+            const ia = (i - BAND * gw) * 4, ib = (i + BAND * gw) * 4;
+            for (let c = 0; c < 3; c++) { up[q.j][c] += px[ia + c]; dn[q.j][c] += px[ib + c]; }
+        }
+        // every part of the line must be clear, so the weakest part counts double
+        const m = sum.map((t) => Math.hypot(t[0], t[1], t[2]) / t[3]);
+        let e = (m.reduce((a, b) => a + b, 0) + Math.min(...m)) / (n + 1);
+        const spread = (arr) => {
+            let worst = 0;
+            for (let a1 = 0; a1 < n; a1++) for (let a2 = a1 + 1; a2 < n; a2++) {
+                const c1 = arr[a1].map((v) => v / sum[a1][3]), c2 = arr[a2].map((v) => v / sum[a2][3]);
+                worst = Math.max(worst, Math.hypot(c1[0] - c2[0], c1[1] - c2[1], c1[2] - c2[2]));
+            }
+            return worst;
+        };
+        return e - 0.25 * (spread(up) + spread(dn));
+    };
+    const gMax = M.roadShape === "slant" ? P * 0.9 : 0;
+    let best = null; const all = [];
+    const search = (d0, d1, dd, g0, g1, dg, ds, sLo, sHi) => {
+        for (let d = d0; d <= d1; d += dd) for (let g = g0; g <= g1; g += dg) {
+            const lo = Math.max(sLo != null ? sLo : -1e9, mrg + (n - 1) * d), hi = Math.min(sHi != null ? sHi : 1e9, M.H - mrg - g);
+            for (let s0 = lo; s0 <= hi; s0 += ds) {
+                const e = score(s0, d, g);
+                if (e < 0) continue;
+                all.push(e);
+                if (!best || e > best.e) best = { e, s0, d, g };
+            }
+        }
+    };
+    search(0.6 * ch, 2.4 * ch, 2, 0, gMax, gMax ? 3 : 1, 2);
+    if (!best) return false;
+    const b0 = best;
+    search(b0.d - 2, b0.d + 2, 0.5, Math.max(0, b0.g - 3), b0.g + 3, gMax ? 1 : 1, 0.5, b0.s0 - 2, b0.s0 + 2);
+    all.sort((a, b) => a - b);
+    const median = all[all.length >> 1];
+    if (!force && best.e < median * 1.6) return false;
+    if (best.e < median * 1.25) return false;
+    M.road = best.s0 / M.H; M.drop = best.d; M.slope = M.roadShape === "slant" ? best.g : null;
+    return true;
 }
 
 // The road goes where the picture is calmest.
@@ -765,11 +844,11 @@ function setOpen(open) {
 
 // ------------------------------------------------------------------ the steps, in words
 function stepTexts(L) {
-    const rows = L.b === 1 ? "a row" : L.b + " rows";
+    const drop = M.drop != null ? Math.round(L.d) + " mm" : L.b === 1 ? "a row" : L.b + " rows";
     return [
         "Finish the puzzle: three sections, A on top, B bottom left and C bottom right. Then carefully slide section B away from the puzzle.",
-        "Slide section C to where B used to be. It drops " + rows + " lower along A's edge.",
-        "Now put B where C used to be, also " + rows + " lower. A hole has magically appeared in the puzzle!",
+        "Slide section C to where B used to be. It drops " + drop + " lower along A's edge.",
+        "Now put B where C used to be, also " + drop + " lower. A hole has magically appeared in the puzzle!",
         "Open the secret bag ★ and fill the hole to finish the puzzle.",
     ];
 }
@@ -908,7 +987,7 @@ function downloadSheet() {
 }
 
 // ------------------------------------------------------------------ saving in this browser
-const SAVE_KEYS = ["W", "H", "n", "bandRows", "roadShape", "road", "roadStyle", "piece", "knob", "seed", "secretText", "styleText", "showCuts", "showSections"];
+const SAVE_KEYS = ["W", "H", "n", "bandRows", "drop", "slope", "roadShape", "road", "roadStyle", "piece", "knob", "seed", "secretText", "styleText", "showCuts", "showSections"];
 let saveTimer = null;
 function scheduleSave() {
     clearTimeout(saveTimer);
@@ -955,7 +1034,12 @@ function updateLayoutUI(L) {
     $("mRoadOut").textContent = (M.road == null && PIC.auto ? "Auto · " : "") + Math.round(L.s) + " mm";
     document.querySelectorAll("#shapeSeg button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.v === M.roadShape));
     $("holeOut").textContent = Math.round(L.P) + " × " + Math.round(L.n * L.d) + " mm";
-    $("mB").value = L.b;
+    const fitOpt = $("mB").querySelector('option[value="fit"]');
+    if (M.drop != null) {
+        const t = Math.round(L.d) + " mm (fitted)";
+        if (fitOpt) fitOpt.textContent = t; else $("mB").insertAdjacentHTML("beforeend", '<option value="fit">' + t + "</option>");
+        $("mB").value = "fit";
+    } else { if (fitOpt) fitOpt.remove(); $("mB").value = L.b; }
 }
 
 function syncInputs() {
@@ -984,10 +1068,18 @@ function init() {
     num("mW", "W", 100, 2000);
     num("mH", "H", 100, 2000);
     $("mN").addEventListener("change", () => { M.n = parseInt($("mN").value); chooseRoad(); relayout(); });
-    $("mB").addEventListener("change", () => { M.bandRows = parseInt($("mB").value); chooseRoad(); relayout(); });
+    $("mB").addEventListener("change", () => {
+        if ($("mB").value === "fit") return;
+        M.bandRows = parseInt($("mB").value); M.drop = null; M.road = null; relayout();
+    });
     $("mRoad").addEventListener("input", () => { const L = layout(); M.road = parseInt($("mRoad").value) / M.H; relayout(); });
-    document.querySelectorAll("#shapeSeg button").forEach((b) => b.addEventListener("click", () => { M.roadShape = b.dataset.v; M.road = null; chooseRoad(); relayout(); }));
-    $("roadAuto").addEventListener("click", () => { M.road = null; chooseRoad(); relayout(); });
+    document.querySelectorAll("#shapeSeg button").forEach((b) => b.addEventListener("click", () => { M.roadShape = b.dataset.v; M.road = null; M.slope = null; chooseRoad(); relayout(); }));
+    $("roadAuto").addEventListener("click", () => {
+        const f = fitToPicture(true);
+        if (!f) { M.road = null; chooseRoad(); }
+        warn(f ? "" : "Couldn't find a clear stepped line in the picture, so the seam goes where the picture is calmest.");
+        relayout();
+    });
     $("mPiece").addEventListener("input", () => { M.piece = +$("mPiece").value; $("mPieceOut").textContent = M.piece + " mm"; chooseRoad(); relayout(); });
     document.querySelectorAll("#roadSeg button").forEach((b) => b.addEventListener("click", () => { M.roadStyle = b.dataset.v; relayout(); }));
     $("aiRoad").addEventListener("click", async () => {

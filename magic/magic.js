@@ -397,8 +397,8 @@ function fitToPicture(force) {
     search(b0.d - 2, b0.d + 2, 0.5, Math.max(0, b0.g - 3), b0.g + 3, gMax ? 1 : 1, 0.5, b0.s0 - 2, b0.s0 + 2);
     all.sort((a, b) => a - b);
     const median = all[all.length >> 1];
-    if (!force && best.e < median * 1.6) return false;
-    if (best.e < median * 1.25) return false;
+    // a clear line scores well above 20; busy pictures without one stay below 10
+    if (best.e < (force ? 12 : 18) || best.e < median * 1.5) return false;
     M.road = best.s0 / M.H; M.drop = best.d; M.slope = M.roadShape === "slant" ? best.g : null;
     return true;
 }
